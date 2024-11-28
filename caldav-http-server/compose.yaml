@@ -1,0 +1,11 @@
+services: 
+  caldav-http: 
+    build:
+     context: app
+     target: builder
+    ports: 
+      - '3003:8000'
+    environment:
+      - CALDAV_SERVER_URI
+    env_file:
+      - .env
