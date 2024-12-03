@@ -5,12 +5,15 @@ import json
 from datetime import datetime
 from datetime import timedelta
 import os
+from unidecode import unidecode
 
 def fill_event(component, calendar) -> dict[str, str]:
     cur = {}
-    cur["calendar"] = f"{calendar}"
-    cur["summary"] = component.get("summary")
-    cur["description"] = component.get("description")
+    cur["calendar"] = unidecode(f"{calendar}")
+    cur["summary"] = unidecode(component.get("summary"))
+    description = component.get("description")
+    if description is not None:
+        cur["description"] = unidecode(description)
     cur["start"] = component.get("dtstart").dt.strftime("%m/%d/%Y %H:%M")
     endDate = component.get("dtend")
     if endDate and endDate.dt:
@@ -23,7 +26,7 @@ caldav_url = os.environ.get("CALDAV_SERVER_URI")
 app = Flask(__name__)
 
 @app.route('/agenda')
-def hello():
+def agenda():
     caldev_username = request.args.get('username')
     caldev_password = request.args.get('password')
     if caldev_username == None or caldev_password == None:
@@ -52,24 +55,3 @@ def hello():
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8000)
-
-
-
-
-
-
-
-
-
-
-
-events = []
-principal = client.principal()
-
-for calendar in calendars:
-    for event in calendar.events():
-        for component in event.icalendar_instance.walk():
-            if component.name != "VEVENT":
-                continue
-            events.append(fill_event(component, calendar))
-print(json.dumps(events, indent=2, ensure_ascii=False))
