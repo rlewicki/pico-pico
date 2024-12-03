@@ -1,14 +1,15 @@
 import time
 from machine import Pin
 import network
-import socket
 import ntptime
 import urequests
-import ujson
-import hmac
-import hashlib
 import json
-from epaper import EPD_2in13_V4_Landscape
+
+from color_setup import ssd
+from gui.core.writer import Writer
+from gui.core.nanogui import refresh
+from gui.widgets.label import Label
+import gui.fonts.freesans20 as freesans20
 
 class AgendaEntry:
     def __init__(self) -> None:
@@ -96,22 +97,26 @@ def boot_sequence():
 
 boot_sequence()
 print("initializing display...")
-display = EPD_2in13_V4_Landscape()
-display.Clear()
-display.fill(0xff)
+wri = Writer(ssd, freesans20, verbose=False)
+wri.set_clip(False, False, False)
+refresh(ssd, True)
+ssd.wait_until_ready()
 
 # Obviously passing username and password as URL parameters is not safe but this is all supposed to stay within
 # local network so I don't really care about anyone seeing this.
 caldav_username, caldav_password, caldav_uri, caldav_port = read_caldav_credentials()
 caldav_request_uri = "http://" + caldav_uri + ":" + caldav_port + "/agenda?username=" + caldav_username + "&password=" + caldav_password
 agenda = get_agenda_data(caldav_request_uri)
-for entry in agenda:
-    display.text(entry.description, 0, 10, 0x00)
-    display.display(display.buffer)
-    display.sleep()
 
-display.display(display.buffer)
-display.sleep()
+row = 5
+for entry in agenda:
+    Label(wri, row, 0, f"{entry.date} {entry.time}")
+    row += freesans20.height()
+    Label(wri, row, 0, entry.description)
+    row += freesans20.height()
+refresh(ssd)
+ssd.wait_until_ready()
+ssd.sleep()
 
 def loop():
     current_date = get_current_date()
