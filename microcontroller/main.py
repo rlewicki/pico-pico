@@ -12,6 +12,15 @@ from gui.widgets.label import Label
 import gui.fonts.arial10 as arial10
 import gui.fonts.courier20 as courier20
 
+class WeatherEntry:
+    def __init__(self) -> None:
+        self.day = -1
+        self.month = -1
+        self.year = -1
+        self.hour = -1
+        self.temperature = -1
+        self.humidity = -1
+
 class AgendaEntry:
     def __init__(self) -> None:
         self.day = -1
@@ -40,7 +49,9 @@ caldav_username = ""
 caldav_password = ""
 caldav_uri = ""
 caldav_port = ""
+open_meteo_uri = ""
 agenda = []
+weather_info = []
 
 def connect_to_wifi(ssid, password):
     wlan = network.WLAN(network.STA_IF)
@@ -109,6 +120,11 @@ def get_current_date():
     current_time = "{}:{}:{}".format(current_time[3] + 1, current_time[4], current_time[5])
     return current_time;
 
+def get_open_meteo_uri():
+    f = open('open-meteo.txt', 'r')
+    uri = f.read()
+    return uri
+
 def update_agenda():
     # Obviously passing username and password as URL parameters is not safe but this is all supposed to stay within
     # local network so I don't really care about anyone seeing this.
@@ -138,6 +154,61 @@ def display_agenda():
     refresh(ssd)
     ssd.wait_until_ready()
     ssd.sleep()
+
+
+def fetch_weather_info(uri):
+    Label(wri_big_font, int(ssd.height / 2 - wri_big_font.height / 2), 8, "updating forecast")
+    refresh(ssd)
+    ssd.wait_until_ready()
+    response = http_get_request(uri)
+    forecast = json.loads(response)
+    weather_info = []
+    for i in range(len(forecast["hourly"]["time"])):
+        new_entry = WeatherEntry()
+        new_entry.year = int(forecast["hourly"]["time"][i][0:4])
+        new_entry.month = int(forecast["hourly"]["time"][i][5:7]) 
+        new_entry.day = int(forecast["hourly"]["time"][i][8:10])
+        new_entry.hour = i % 24
+        new_entry.temperature = float(forecast["hourly"]["temperature_2m"][i])
+        new_entry.humidity = float(forecast["hourly"]["relativehumidity_2m"][i])
+        weather_info.append(new_entry)
+    return weather_info
+    
+    
+def display_weather_info(uri):
+    global weather_info
+    if len(weather_info) <= 0:
+        refresh(ssd, True)
+        ssd.wait_until_ready()
+        weather_info = fetch_weather_info(uri)
+    print(f"weather info contains {len(weather_info)} samples")
+    current_hour = time.localtime()[3]
+    print(f"current hour: {current_hour}")
+    forecast_now = weather_info[current_hour]
+    forecast_tomorrow = weather_info[36]
+    forecast_day_after_tomorrow = weather_info[60]
+    refresh(ssd, True)
+    ssd.wait_until_ready()
+    Label(wri_small_font, 12, 20, "Teraz")
+    Label(wri_small_font, 12, 110, "Jutro")
+    Label(wri_small_font, 12, 185, "Pojutrze")
+    temp_now_field = Label(wri_big_font, 35, 10, wri_big_font.stringlen("-99C"))
+    hum_now_field = Label(wri_big_font, 58, 10, wri_big_font.stringlen("100%"))
+    temp_tomorrow_field = Label(wri_big_font, 35, 95, wri_big_font.stringlen("-99C"))
+    hum_tomorrow_field = Label(wri_big_font, 58, 95, wri_big_font.stringlen("100%"))
+    temp_day_after_tomorrow_field = Label(wri_big_font, 35, 175, wri_big_font.stringlen("-99C"))
+    hum_day_after_tomorrow_field = Label(wri_big_font, 58, 175, wri_big_font.stringlen("100%"))
+    
+    temp_now_field.value(f"{forecast_now.temperature}C")
+    hum_now_field.value(f"{forecast_now.humidity}%")
+    temp_tomorrow_field.value(f"{forecast_tomorrow.temperature}C")
+    hum_tomorrow_field.value(f"{forecast_tomorrow.humidity}%")
+    temp_day_after_tomorrow_field.value(f"{forecast_day_after_tomorrow.temperature}C")
+    hum_day_after_tomorrow_field.value(f"{forecast_day_after_tomorrow.humidity}%")
+
+    refresh(ssd)
+    ssd.wait_until_ready()
+    ssd.sleep()
     
 def boot_sequence():
     print("booting up...")
@@ -149,20 +220,25 @@ def boot_sequence():
     set_current_time()
 
 boot_sequence()
+
+open_meteo_uri = get_open_meteo_uri()
+print(f"open meteo uri: {open_meteo_uri}")
+
 print("initializing display...")
 wri_small_font = Writer(ssd, arial10, verbose=False)
-wri_small_font.set_clip(False, False, False)
+wri_small_font.set_clip(True, True, False)
 
 wri_big_font = Writer(ssd, courier20, verbose=False)
-wri_big_font.set_clip(False, False, False)
+wri_big_font.set_clip(True, True, False)
 
 refresh(ssd, True)
 ssd.wait_until_ready()
 
 caldav_username, caldav_password, caldav_uri, caldav_port = read_caldav_credentials()
-success = update_agenda()
-if success:
-    display_agenda()
+# success = update_agenda()
+# if success:
+#     display_agenda()
+display_weather_info(open_meteo_uri)
 
 def loop():
     current_date = get_current_date()
