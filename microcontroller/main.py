@@ -12,14 +12,15 @@ from gui.widgets.label import Label
 import gui.fonts.arial10 as arial10
 import gui.fonts.courier20 as courier20
 
+import forecast_images
+
 class WeatherEntry:
     def __init__(self) -> None:
-        self.day = -1
-        self.month = -1
-        self.year = -1
-        self.hour = -1
-        self.temperature = -1
-        self.humidity = -1
+        self.date = -1
+        self.temp_min = -1
+        self.temp_max = -1
+        self.precipitation = -1
+        self.weather_code = -1
 
 class AgendaEntry:
     def __init__(self) -> None:
@@ -43,6 +44,35 @@ month_names = [
     "Listopad",
     "Grudzien"
 ]
+
+weather_code_to_icon = {
+    0: forecast_images.clear_sky,
+    1: forecast_images.cloudy_light,
+    2: forecast_images.cloudy_medium,
+    3: forecast_images.cloudy_heavy,
+    45: forecast_images.fog,
+    48: forecast_images.fog,
+    51: forecast_images.sprinkle,
+    53: forecast_images.sprinkle,
+    55: forecast_images.sprinkle,
+    56: forecast_images.rain_mix,
+    57: forecast_images.rain_mix,
+    61: forecast_images.showers,
+    63: forecast_images.hail,
+    65: forecast_images.hail,
+    71: forecast_images.snow,
+    73: forecast_images.snow,
+    75: forecast_images.snow,
+    77: forecast_images.snow,
+    80: forecast_images.showers,
+    81: forecast_images.showers,
+    82: forecast_images.showers,
+    85: forecast_images.snow,
+    86: forecast_images.snow,
+    95: forecast_images.thunderstorm,
+    96: forecast_images.thunderstorm,
+    99: forecast_images.thunderstorm
+}
 
 led_pin = machine.Pin('LED', Pin.OUT)
 caldav_username = ""
@@ -162,18 +192,41 @@ def fetch_weather_info(uri):
     ssd.wait_until_ready()
     response = http_get_request(uri)
     forecast = json.loads(response)
-    weather_info = []
-    for i in range(len(forecast["hourly"]["time"])):
-        new_entry = WeatherEntry()
-        new_entry.year = int(forecast["hourly"]["time"][i][0:4])
-        new_entry.month = int(forecast["hourly"]["time"][i][5:7]) 
-        new_entry.day = int(forecast["hourly"]["time"][i][8:10])
-        new_entry.hour = i % 24
-        new_entry.temperature = float(forecast["hourly"]["temperature_2m"][i])
-        new_entry.humidity = float(forecast["hourly"]["relativehumidity_2m"][i])
-        weather_info.append(new_entry)
-    return weather_info
+    current = WeatherEntry()
+    current.date = forecast["daily"]["time"][0]
+    current.temp_min = forecast["current"]["temperature_2m"]
+    current.temp_max = current.temp_min
+    current.precipitation = forecast["current"]["precipitation"]
+    current.weather_code = forecast["current"]["weather_code"]
     
+    daily_data = forecast["daily"]
+    tomorrow = WeatherEntry()
+    tomorrow.date = daily_data["time"][1]
+    tomorrow.temp_min = daily_data["temperature_2m_min"][1]
+    tomorrow.temp_max = daily_data["temperature_2m_max"][1]
+    tomorrow.precipitation = daily_data["precipitation_probability_max"][1]
+    tomorrow.weather_code = daily_data["weather_code"][1]
+    
+    day_after_tomorrow = WeatherEntry()
+    day_after_tomorrow.date = daily_data["time"][2]
+    day_after_tomorrow.temp_min = daily_data["temperature_2m_min"][2]
+    day_after_tomorrow.temp_max = daily_data["temperature_2m_max"][2]
+    day_after_tomorrow.precipitation = daily_data["precipitation_probability_max"][2]
+    day_after_tomorrow.weather_code = daily_data["weather_code"][2]
+    
+    weather_info = [
+        current,
+        tomorrow,
+        day_after_tomorrow
+    ]
+
+    return weather_info
+
+def display_image(pos_x, pos_y, width, height, img_data):
+    for y in range(height):
+        for x in range(width):
+            if not img_data[y * (width // 8) + (x // 8)] & (128 >> (x % 8)):
+                ssd.pixel(pos_x + x, pos_y + y, 0xff)
     
 def display_weather_info(uri):
     global weather_info
@@ -181,30 +234,38 @@ def display_weather_info(uri):
         refresh(ssd, True)
         ssd.wait_until_ready()
         weather_info = fetch_weather_info(uri)
-    print(f"weather info contains {len(weather_info)} samples")
-    current_hour = time.localtime()[3]
-    print(f"current hour: {current_hour}")
-    forecast_now = weather_info[current_hour]
-    forecast_tomorrow = weather_info[36]
-    forecast_day_after_tomorrow = weather_info[60]
+    forecast_now = weather_info[0]
+    forecast_tomorrow = weather_info[1]
+    forecast_day_after_tomorrow = weather_info[2]
     refresh(ssd, True)
     ssd.wait_until_ready()
     Label(wri_small_font, 12, 20, "Teraz")
     Label(wri_small_font, 12, 110, "Jutro")
     Label(wri_small_font, 12, 185, "Pojutrze")
-    temp_now_field = Label(wri_big_font, 35, 10, wri_big_font.stringlen("-99C"))
-    hum_now_field = Label(wri_big_font, 58, 10, wri_big_font.stringlen("100%"))
-    temp_tomorrow_field = Label(wri_big_font, 35, 95, wri_big_font.stringlen("-99C"))
-    hum_tomorrow_field = Label(wri_big_font, 58, 95, wri_big_font.stringlen("100%"))
-    temp_day_after_tomorrow_field = Label(wri_big_font, 35, 175, wri_big_font.stringlen("-99C"))
-    hum_day_after_tomorrow_field = Label(wri_big_font, 58, 175, wri_big_font.stringlen("100%"))
     
-    temp_now_field.value(f"{forecast_now.temperature}C")
-    hum_now_field.value(f"{forecast_now.humidity}%")
-    temp_tomorrow_field.value(f"{forecast_tomorrow.temperature}C")
-    hum_tomorrow_field.value(f"{forecast_tomorrow.humidity}%")
-    temp_day_after_tomorrow_field.value(f"{forecast_day_after_tomorrow.temperature}C")
-    hum_day_after_tomorrow_field.value(f"{forecast_day_after_tomorrow.humidity}%")
+    temp_now_field = Label(wri_big_font, 35, 10, wri_big_font.stringlen("-99C"))
+    precipitation_now_field = Label(wri_big_font, 58, 10, wri_big_font.stringlen("100%"))
+    
+    temp_min_tomorrow_field = Label(wri_big_font, 35, 95, wri_big_font.stringlen("-99C"))
+    temp_max_tomorrow_field = Label(wri_big_font, 58, 95, wri_big_font.stringlen("-99C"))
+    
+    temp_min_day_after_tomorrow_field = Label(wri_big_font, 35, 175, wri_big_font.stringlen("-99C"))
+    temp_max_day_after_tomorrow_field = Label(wri_big_font, 58, 175, wri_big_font.stringlen("-99C"))
+    
+    icons_height = 65
+    icons_size = 64
+    
+    temp_now_field.value(f"{forecast_now.temp_min}C")
+    precipitation_now_field.value(f"{int(forecast_now.precipitation)}%")
+    display_image(0, icons_height, icons_size, icons_size, weather_code_to_icon[forecast_now.weather_code])
+    
+    temp_min_tomorrow_field.value(f"{forecast_tomorrow.temp_min}C")
+    temp_max_tomorrow_field.value(f"{forecast_tomorrow.temp_max}C")
+    display_image(85, icons_height, icons_size, icons_size, weather_code_to_icon[forecast_tomorrow.weather_code])
+    
+    temp_min_day_after_tomorrow_field.value(f"{forecast_day_after_tomorrow.temp_min}C")
+    temp_max_day_after_tomorrow_field.value(f"{forecast_day_after_tomorrow.temp_max}C")
+    display_image(160, icons_height, icons_size, icons_size, weather_code_to_icon[forecast_day_after_tomorrow.weather_code])
 
     refresh(ssd)
     ssd.wait_until_ready()
