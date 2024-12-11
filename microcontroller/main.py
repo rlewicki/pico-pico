@@ -9,10 +9,15 @@ from color_setup import ssd
 from gui.core.writer import Writer
 from gui.core.nanogui import refresh
 from gui.widgets.label import Label
+from gui.widgets.label import ALIGN_CENTER
+from gui.widgets.label import ALIGN_LEFT
+from gui.widgets.label import ALIGN_RIGHT
 import gui.fonts.arial10 as arial10
 import gui.fonts.courier20 as courier20
 
 import forecast_images
+
+from extended_gui import PicoLabel
 
 class WeatherEntry:
     def __init__(self) -> None:
@@ -231,41 +236,38 @@ def display_image(pos_x, pos_y, width, height, img_data):
 def display_weather_info(uri):
     global weather_info
     if len(weather_info) <= 0:
-        refresh(ssd, True)
-        ssd.wait_until_ready()
         weather_info = fetch_weather_info(uri)
     forecast_now = weather_info[0]
     forecast_tomorrow = weather_info[1]
     forecast_day_after_tomorrow = weather_info[2]
     refresh(ssd, True)
     ssd.wait_until_ready()
-    Label(wri_small_font, 12, 20, "Teraz")
-    Label(wri_small_font, 12, 110, "Jutro")
-    Label(wri_small_font, 12, 185, "Pojutrze")
     
-    temp_now_field = Label(wri_big_font, 35, 10, wri_big_font.stringlen("-99C"))
-    precipitation_now_field = Label(wri_big_font, 58, 10, wri_big_font.stringlen("100%"))
-    
-    temp_min_tomorrow_field = Label(wri_big_font, 35, 95, wri_big_font.stringlen("-99C"))
-    temp_max_tomorrow_field = Label(wri_big_font, 58, 95, wri_big_font.stringlen("-99C"))
-    
-    temp_min_day_after_tomorrow_field = Label(wri_big_font, 35, 175, wri_big_font.stringlen("-99C"))
-    temp_max_day_after_tomorrow_field = Label(wri_big_font, 58, 175, wri_big_font.stringlen("-99C"))
-    
-    icons_height = 65
+    label_width = ssd.width // 3
+    first_row_height = 8
+    second_row_height = 25
+    third_row_height = 45
+    icons_height = 60
     icons_size = 64
+ 
+    PicoLabel(wri_small_font, "Teraz", 0, first_row_height, label_width)
+    PicoLabel(wri_small_font, "Jutro", label_width, first_row_height, label_width)
+    PicoLabel(wri_small_font, "Pojutrze", label_width * 2, first_row_height, label_width)
     
-    temp_now_field.value(f"{forecast_now.temp_min}C")
-    precipitation_now_field.value(f"{int(forecast_now.precipitation)}%")
-    display_image(0, icons_height, icons_size, icons_size, weather_code_to_icon[forecast_now.weather_code])
+    PicoLabel(wri_big_font, f"{forecast_now.temp_min}C", 0, second_row_height, label_width)
+    PicoLabel(wri_big_font, f"{int(forecast_now.precipitation)}%", 0, third_row_height, label_width)
+    display_image(9, icons_height, icons_size, icons_size, weather_code_to_icon[forecast_now.weather_code])
     
-    temp_min_tomorrow_field.value(f"{forecast_tomorrow.temp_min}C")
-    temp_max_tomorrow_field.value(f"{forecast_tomorrow.temp_max}C")
-    display_image(85, icons_height, icons_size, icons_size, weather_code_to_icon[forecast_tomorrow.weather_code])
+    PicoLabel(wri_big_font, f"{forecast_tomorrow.temp_min}C", label_width, second_row_height, label_width)
+    PicoLabel(wri_big_font, f"{forecast_tomorrow.temp_max}C", label_width, third_row_height, label_width)
+    display_image(93, icons_height, icons_size, icons_size, weather_code_to_icon[forecast_tomorrow.weather_code])
     
-    temp_min_day_after_tomorrow_field.value(f"{forecast_day_after_tomorrow.temp_min}C")
-    temp_max_day_after_tomorrow_field.value(f"{forecast_day_after_tomorrow.temp_max}C")
-    display_image(160, icons_height, icons_size, icons_size, weather_code_to_icon[forecast_day_after_tomorrow.weather_code])
+    PicoLabel(wri_big_font, f"{forecast_day_after_tomorrow.temp_min}C", label_width * 2, second_row_height, label_width)
+    PicoLabel(wri_big_font, f"{forecast_day_after_tomorrow.temp_max}C", label_width * 2, third_row_height, label_width)
+    display_image(176, icons_height, icons_size, icons_size, weather_code_to_icon[forecast_day_after_tomorrow.weather_code])
+    
+    ssd.vline(label_width, 0, ssd.height, 1)
+    ssd.vline(label_width * 2, 0, ssd.height, 1)
 
     refresh(ssd)
     ssd.wait_until_ready()

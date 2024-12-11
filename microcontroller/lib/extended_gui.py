@@ -1,0 +1,15 @@
+from gui.widgets.label import Label
+from gui.widgets.label import ALIGN_CENTER
+from gui.widgets.label import ALIGN_LEFT
+from gui.widgets.label import ALIGN_RIGHT
+
+class PicoLabel(Label):
+    def __init__(self, writer, text, x, y, width = -1, align = ALIGN_CENTER):
+        if width <= 0:
+            width = writer.stringlen(text)
+        text_width = writer.stringlen(text)
+        if align == ALIGN_CENTER:
+            x = x + (width - text_width) // 2
+        elif align == ALIGN_RIGHT:
+            x = x + (width - text_width)
+        super().__init__(writer, y, x, text)
