@@ -57,7 +57,7 @@ class Writer():
             s.text_row = row
         if col is not None:
             if col < 0 or col >= device.width:
-                raise ValueError('col is out of range')
+                raise ValueError(f'col is out of range ({col}, device width: {device.width})')
             s.text_col = col
         return s.text_row,  s.text_col
 

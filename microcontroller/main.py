@@ -182,10 +182,24 @@ def display_agenda():
     for entry in agenda:
         Label(wri_small_font, row, 0, f"{entry.day} {month_names[entry.month - 1]} {entry.year} {entry.time}")
         row += arial10.height()
-        Label(wri_big_font, row, 0, entry.description)
-        row += courier20.height()
-        if row + arial10.height() > ssd.height:
+        description_words = entry.description.split(" ")
+        sentence = ""
+        sentence_width = 0
+        for word in description_words:
+            word_width = wri_big_font.stringlen(word)
+            if sentence_width + word_width > ssd.width:
+                Label(wri_big_font, row, 0, sentence)
+                row += courier20.height()
+                sentence = ""
+                sentence_width = 0
+            sentence += word + " "
+            sentence_width += word_width + wri_big_font.stringlen(" ")
+        if sentence_width > 0:
+            Label(wri_big_font, row, 0, sentence[:-1])
+            row += courier20.height()
+        if row + arial10.height() + courier20.height() > ssd.height:
             break
+        row += 2
     refresh(ssd)
     ssd.wait_until_ready()
     ssd.sleep()
@@ -298,10 +312,10 @@ refresh(ssd, True)
 ssd.wait_until_ready()
 
 caldav_username, caldav_password, caldav_uri, caldav_port = read_caldav_credentials()
-# success = update_agenda()
-# if success:
-#     display_agenda()
-display_weather_info(open_meteo_uri)
+success = update_agenda()
+if success:
+    display_agenda()
+# display_weather_info(open_meteo_uri)
 
 def loop():
     current_date = get_current_date()
