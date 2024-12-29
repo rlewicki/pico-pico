@@ -33,7 +33,11 @@ class AgendaEntry:
         self.month = -1
         self.year = -1
         self.time = None
-        self.description = None
+        self.description_lines = []
+
+class AgendaPage:
+    def __init__(self) -> None:
+        self.agendaEntries = []
 
 month_names = [
     "Styczen",
@@ -86,6 +90,7 @@ caldav_uri = ""
 caldav_port = ""
 open_meteo_uri = ""
 agenda = []
+agenda_pages = []
 weather_info = []
 
 def connect_to_wifi(ssid, password):
@@ -146,7 +151,21 @@ def get_agenda_data(caldav_url):
         new_entry.month = int(date_components[0])
         new_entry.year = int(date_components[2])
         new_entry.time = date[1]
-        new_entry.description = event['summary']
+        description_words = event['summary'].split(" ")
+        description_lines = []
+        sentence = ""
+        sentence_width = 0
+        for word in description_words:
+            word_width = wri_big_font.stringlen(word)
+            if sentence_width + word_width > ssd.width:
+                description_lines.append(sentence)
+                sentence = ""
+                sentence_width = 0
+            sentence += word + " "
+            sentence_width += word_width + wri_big_font.stringlen(" ")
+        if sentence_width > 0:
+            description_lines.append(sentence[:-1])
+        new_entry.description_lines = description_lines
         agenda.append(new_entry)
     return agenda
         
@@ -164,42 +183,51 @@ def update_agenda():
     # Obviously passing username and password as URL parameters is not safe but this is all supposed to stay within
     # local network so I don't really care about anyone seeing this.
     global agenda
-    caldav_request_uri = "http://" + caldav_uri + ":" + caldav_port + "/agenda?username=" + caldav_username + "&password=" + caldav_password
+    caldav_request_uri = "http://" + caldav_uri + ":" + caldav_port + "/agenda?username=" + caldav_username + "&password=" + caldav_password + "&days=21"
     print("fetching agenda from calendar...")
     try:
         agenda = get_agenda_data(caldav_request_uri)
-        agenda.sort(key=lambda x: (x.year, x.month, x.day, x.time))
-        return True
     except:
         print("failed to fetch new agenda")
         return False
-    
-def display_agenda():
-    print(f"displaying {len(agenda)} agenda items...")
+    agenda.sort(key=lambda x: (x.year, x.month, x.day, x.time))
+    update_agenda_paging()
+    return True
+
+
+def update_agenda_paging():
+    global agenda_pages
+    agenda_pages = []
+    row = 6
+    new_agenda_page = AgendaPage()
+    print("paging agenda events...")
+    for entry in agenda:
+        row += wri_small_font.height
+        row += (len(entry.description_lines) * wri_big_font.height)
+        if row >= ssd.height:
+            agenda_pages.append(new_agenda_page)
+            new_agenda_page = AgendaPage()
+        new_agenda_page.agendaEntries.append(entry)
+    agenda_pages.append(new_agenda_page)
+    print(f"Num of agenda pages created: {len(agenda_pages)}")
+
+
+def display_agenda(pageIndex):
+    if pageIndex < 0 or pageIndex >= len(agenda_pages):
+        print(f"invalid page index ({pageIndex})")
+        return
+
     refresh(ssd, True)
     ssd.wait_until_ready()
     row = 6
-    for entry in agenda:
+    agenda_page = agenda_pages[pageIndex]
+    print(f"displaying {len(agenda_page.agendaEntries)} agenda items...")
+    for entry in agenda_page.agendaEntries:
         Label(wri_small_font, row, 0, f"{entry.day} {month_names[entry.month - 1]} {entry.year} {entry.time}")
         row += arial10.height()
-        description_words = entry.description.split(" ")
-        sentence = ""
-        sentence_width = 0
-        for word in description_words:
-            word_width = wri_big_font.stringlen(word)
-            if sentence_width + word_width > ssd.width:
-                Label(wri_big_font, row, 0, sentence)
-                row += courier20.height()
-                sentence = ""
-                sentence_width = 0
-            sentence += word + " "
-            sentence_width += word_width + wri_big_font.stringlen(" ")
-        if sentence_width > 0:
-            Label(wri_big_font, row, 0, sentence[:-1])
+        for desc_line in entry.description_lines:
+            Label(wri_big_font, row, 0, desc_line)
             row += courier20.height()
-        if row + arial10.height() + courier20.height() > ssd.height:
-            break
-        row += 2
     refresh(ssd)
     ssd.wait_until_ready()
     ssd.sleep()
@@ -314,7 +342,7 @@ ssd.wait_until_ready()
 caldav_username, caldav_password, caldav_uri, caldav_port = read_caldav_credentials()
 success = update_agenda()
 if success:
-    display_agenda()
+    display_agenda(0)
 # display_weather_info(open_meteo_uri)
 
 def loop():
