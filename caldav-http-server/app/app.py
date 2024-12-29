@@ -29,6 +29,7 @@ app = Flask(__name__)
 def agenda():
     caldev_username = request.args.get('username')
     caldev_password = request.args.get('password')
+    days = int(request.args.get('days'))
     if caldev_username == None or caldev_password == None:
         return "failed to provide username or password", 400
     caldav_client = caldav.DAVClient(
@@ -43,7 +44,7 @@ def agenda():
     for calendar in calendars:
         events_fetched = calendar.search(
             start=datetime.now(),
-            end=datetime.now() + timedelta(days=7),
+            end=datetime.now() + timedelta(days=days),
             event=True,
         )
         for event in events_fetched:
