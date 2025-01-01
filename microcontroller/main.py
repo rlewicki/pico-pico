@@ -93,6 +93,9 @@ agenda = []
 agenda_pages = []
 weather_info = []
 
+button = Pin(2, Pin.IN, Pin.PULL_DOWN)
+last_button_press_time = time.ticks_ms()
+
 def connect_to_wifi(ssid, password):
     wlan = network.WLAN(network.STA_IF)
     wlan.active(True)
@@ -314,6 +317,16 @@ def display_weather_info(uri):
     refresh(ssd)
     ssd.wait_until_ready()
     ssd.sleep()
+
+def button_handler(pin):
+    global last_button_press_time
+    current_time = time.ticks_ms()
+    time_elapsed_ms = time.ticks_diff(current_time, last_button_press_time)
+    if time_elapsed_ms < 250:
+        return
+    print(f"button pressed, time since last press: {time_elapsed_ms}")
+    last_button_press_time = time.ticks_ms()
+
     
 def boot_sequence():
     print("booting up...")
@@ -323,6 +336,8 @@ def boot_sequence():
     print("connecting to wifi network...")
     connect_to_wifi(wifi_ssid, wifi_password)
     set_current_time()
+    
+    button.irq(trigger=Pin.IRQ_RISING, handler=button_handler)
 
 boot_sequence()
 
