@@ -95,6 +95,8 @@ weather_info = []
 
 button = Pin(2, Pin.IN, Pin.PULL_DOWN)
 last_button_press_time = time.ticks_ms()
+current_agenda_page = 0
+requested_agenda_page = 0
 
 def connect_to_wifi(ssid, password):
     wlan = network.WLAN(network.STA_IF)
@@ -104,7 +106,8 @@ def connect_to_wifi(ssid, password):
         print("waiting for Internet connection...")
         time.sleep(1)
     print(wlan.ifconfig())
-    
+
+
 def set_current_time():
     ntptime.settime()
     current_time = time.localtime()
@@ -115,7 +118,8 @@ def set_current_time():
         current_time[2], 
         current_time[1], 
         current_time[0]))
-    
+
+
 def read_wifi_credentials():
     f = open("wifi.txt", "r")
     data = f.read().splitlines()
@@ -125,6 +129,7 @@ def read_wifi_credentials():
     ssid = data[0]
     password = data[1]
     return ssid, password
+
 
 def read_caldav_credentials():
     f = open("caldav.txt", "r")
@@ -138,9 +143,11 @@ def read_caldav_credentials():
     port = data[3]
     return username, password, uri, port
 
+
 def http_get_request(url):
     response = urequests.get(url)
     return response.text
+
 
 def get_agenda_data(caldav_url):
     response = http_get_request(caldav_url)
@@ -171,16 +178,19 @@ def get_agenda_data(caldav_url):
         new_entry.description_lines = description_lines
         agenda.append(new_entry)
     return agenda
+
         
 def get_current_date():
     current_time = time.localtime()
     current_time = "{}:{}:{}".format(current_time[3] + 1, current_time[4], current_time[5])
     return current_time;
 
+
 def get_open_meteo_uri():
     f = open('open-meteo.txt', 'r')
     uri = f.read()
     return uri
+
 
 def update_agenda():
     # Obviously passing username and password as URL parameters is not safe but this is all supposed to stay within
@@ -220,6 +230,8 @@ def display_agenda(pageIndex):
         print(f"invalid page index ({pageIndex})")
         return
 
+    ssd.init()
+    ssd.wait_until_ready()
     refresh(ssd, True)
     ssd.wait_until_ready()
     row = 6
@@ -272,12 +284,14 @@ def fetch_weather_info(uri):
 
     return weather_info
 
+
 def display_image(pos_x, pos_y, width, height, img_data):
     for y in range(height):
         for x in range(width):
             if not img_data[y * (width // 8) + (x // 8)] & (128 >> (x % 8)):
                 ssd.pixel(pos_x + x, pos_y + y, 0xff)
-    
+
+
 def display_weather_info(uri):
     global weather_info
     if len(weather_info) <= 0:
@@ -318,14 +332,16 @@ def display_weather_info(uri):
     ssd.wait_until_ready()
     ssd.sleep()
 
+
 def button_handler(pin):
     global last_button_press_time
+    global requested_agenda_page
     current_time = time.ticks_ms()
     time_elapsed_ms = time.ticks_diff(current_time, last_button_press_time)
     if time_elapsed_ms < 250:
         return
-    print(f"button pressed, time since last press: {time_elapsed_ms}")
     last_button_press_time = time.ticks_ms()
+    requested_agenda_page = (current_agenda_page + 1) % len(agenda_pages)
 
     
 def boot_sequence():
@@ -338,6 +354,7 @@ def boot_sequence():
     set_current_time()
     
     button.irq(trigger=Pin.IRQ_RISING, handler=button_handler)
+
 
 boot_sequence()
 
@@ -357,13 +374,17 @@ ssd.wait_until_ready()
 caldav_username, caldav_password, caldav_uri, caldav_port = read_caldav_credentials()
 success = update_agenda()
 if success:
-    display_agenda(0)
+    display_agenda(current_agenda_page)
 # display_weather_info(open_meteo_uri)
 
 def loop():
+    global current_agenda_page
     current_date = get_current_date()
     led_pin.toggle()
     time.sleep(1)
+    if requested_agenda_page != current_agenda_page:
+        current_agenda_page = requested_agenda_page
+        display_agenda(current_agenda_page)
 
 while True:
     loop()
