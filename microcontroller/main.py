@@ -244,6 +244,9 @@ def display_agenda(pageIndex):
         for desc_line in entry.description_lines:
             Label(wri_big_font, row, 0, desc_line)
             row += courier20.height()
+    page_label = f"{current_agenda_page + 1} / {len(agenda_pages)}"
+    page_label_width = wri_small_font.stringlen(page_label)
+    Label(wri_small_font, 6, 250 - page_label_width, page_label)
     refresh(ssd)
     ssd.wait_until_ready()
     ssd.sleep()
