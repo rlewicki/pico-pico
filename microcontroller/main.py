@@ -220,6 +220,7 @@ def update_agenda_paging():
         if row >= ssd.height:
             agenda_pages.append(new_agenda_page)
             new_agenda_page = AgendaPage()
+            row = 6
         new_agenda_page.agendaEntries.append(entry)
     agenda_pages.append(new_agenda_page)
     print(f"Num of agenda pages created: {len(agenda_pages)}")
