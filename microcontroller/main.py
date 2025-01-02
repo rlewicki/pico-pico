@@ -98,6 +98,9 @@ last_button_press_time = time.ticks_ms()
 current_agenda_page = 0
 requested_agenda_page = 0
 
+white_led = Pin(3, Pin.OUT)
+white_led.value(1)
+
 def connect_to_wifi(ssid, password):
     wlan = network.WLAN(network.STA_IF)
     wlan.active(True)
