@@ -1,5 +1,6 @@
 import time
 from machine import Pin
+from machine import Timer
 import network
 import ntptime
 import urequests
@@ -18,6 +19,14 @@ import gui.fonts.courier20 as courier20
 import forecast_images
 
 from extended_gui import PicoLabel
+
+WEATHER_FORECAST_SCREEN = 1
+AGENDA_SCREEN = 2
+FAILED_INITIALIZATION = 3   
+FETCHING_AGENDA = 4
+FETCHING_WEATHER = 5
+REFRESHING_AGENDA = 6
+INITIALIZING = 7
 
 class WeatherEntry:
     def __init__(self) -> None:
@@ -83,7 +92,6 @@ weather_code_to_icon = {
     99: forecast_images.thunderstorm
 }
 
-led_pin = machine.Pin('LED', Pin.OUT)
 caldav_username = ""
 caldav_password = ""
 caldav_uri = ""
@@ -93,13 +101,36 @@ agenda = []
 agenda_pages = []
 weather_info = []
 
-button = Pin(2, Pin.IN, Pin.PULL_DOWN)
+button = Pin(3, Pin.IN, Pin.PULL_DOWN)
 last_button_press_time = time.ticks_ms()
 current_agenda_page = 0
 requested_agenda_page = 0
 
-white_led = Pin(3, Pin.OUT)
-white_led.value(1)
+white_led = Pin(2, Pin.OUT)
+current_led_value = 1
+white_led.value(current_led_value)
+led_timer = None
+
+program_state = INITIALIZING
+
+def toggle_led(source):
+    global current_led_value
+    if current_led_value == 1:
+        current_led_value = 0
+    else:
+        current_led_value = 1
+    white_led.value(current_led_value)
+
+
+def start_led_flashing():
+    global led_timer
+    led_timer = Timer(period=500, mode=Timer.PERIODIC, callback = toggle_led)
+    
+
+def stop_led_flashing():
+    global led_timer
+    led_timer.deinit()
+
 
 def connect_to_wifi(ssid, password):
     wlan = network.WLAN(network.STA_IF)
@@ -199,11 +230,12 @@ def update_agenda():
     # Obviously passing username and password as URL parameters is not safe but this is all supposed to stay within
     # local network so I don't really care about anyone seeing this.
     global agenda
-    caldav_request_uri = "http://" + caldav_uri + ":" + caldav_port + "/agenda?username=" + caldav_username + "&password=" + caldav_password + "&days=21"
+    caldav_request_uri = "http://" + caldav_uri + ":" + caldav_port + "/agenda?username=" + caldav_username + "&password=" + caldav_password + "&days=60"
     print("fetching agenda from calendar...")
     try:
         agenda = get_agenda_data(caldav_request_uri)
     except:
+        stop_led_flashing()
         print("failed to fetch new agenda")
         return False
     agenda.sort(key=lambda x: (x.year, x.month, x.day, x.time))
@@ -379,15 +411,21 @@ refresh(ssd, True)
 ssd.wait_until_ready()
 
 caldav_username, caldav_password, caldav_uri, caldav_port = read_caldav_credentials()
+start_led_flashing()
 success = update_agenda()
 if success:
     display_agenda(current_agenda_page)
+else:
+    PicoLabel(wri_small_font, "Failed to fetch the agenda.", 4, 10)
+    PicoLabel(wri_small_font, "Press the button to retry.", 4, 20)
+    refresh(ssd)
+    ssd.wait_until_ready()
+    ssd.sleep()
 # display_weather_info(open_meteo_uri)
+stop_led_flashing()
 
 def loop():
     global current_agenda_page
-    current_date = get_current_date()
-    led_pin.toggle()
     time.sleep(1)
     if requested_agenda_page != current_agenda_page:
         current_agenda_page = requested_agenda_page
