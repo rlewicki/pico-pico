@@ -47,6 +47,25 @@ class AgendaEntry:
 class AgendaPage:
     def __init__(self) -> None:
         self.agendaEntries = []
+        
+class Globals:
+    def __init__(self) -> None:
+        self.app_state = INITIALIZING
+        self.caldav_username = ""
+        self.caldav_password = ""
+        self.caldav_uri = ""
+        self.open_meteo_uri = ""
+        self.agenda = []
+        self.agenda_pages = []
+        self.current_agenda_page = 0
+        self.weather_info = []
+        self.last_button_press_time = time.ticks_ms()
+        self.white_led_value = 0
+        self.led_counter = 0
+        self.led_timer = None
+        self.wri_small_font = None
+        self.wri_big_font = None
+        
 
 month_names = [
     "Styczen",
@@ -92,44 +111,31 @@ weather_code_to_icon = {
     99: forecast_images.thunderstorm
 }
 
-caldav_username = ""
-caldav_password = ""
-caldav_uri = ""
-caldav_port = ""
-open_meteo_uri = ""
-agenda = []
-agenda_pages = []
-weather_info = []
-
+g = Globals()
 button = Pin(3, Pin.IN, Pin.PULL_DOWN)
-last_button_press_time = time.ticks_ms()
-current_agenda_page = 0
-requested_agenda_page = 0
-
 white_led = Pin(2, Pin.OUT)
-current_led_value = 1
-white_led.value(current_led_value)
-led_timer = None
-
-program_state = INITIALIZING
+white_led.value(0)
 
 def toggle_led(source):
-    global current_led_value
-    if current_led_value == 1:
-        current_led_value = 0
+    if g.white_led_value == 1:
+        g.white_led_value = 0
     else:
-        current_led_value = 1
-    white_led.value(current_led_value)
+        g.white_led_value = 1
+    white_led.value(g.white_led_value)
 
 
 def start_led_flashing():
-    global led_timer
-    led_timer = Timer(period=500, mode=Timer.PERIODIC, callback = toggle_led)
+    if g.led_counter == 0:
+        g.led_timer = Timer(period=500, mode=Timer.PERIODIC, callback = toggle_led)
+    g.led_counter += 1
     
 
 def stop_led_flashing():
-    global led_timer
-    led_timer.deinit()
+    g.led_counter -= 1
+    if g.led_counter == 0:
+        g.led_timer.deinit()
+        g.white_led_value = 0
+        white_led.value(0)
 
 
 def connect_to_wifi(ssid, password):
@@ -200,13 +206,13 @@ def get_agenda_data(caldav_url):
         sentence = ""
         sentence_width = 0
         for word in description_words:
-            word_width = wri_big_font.stringlen(word)
+            word_width = g.wri_big_font.stringlen(word)
             if sentence_width + word_width > ssd.width:
                 description_lines.append(sentence)
                 sentence = ""
                 sentence_width = 0
             sentence += word + " "
-            sentence_width += word_width + wri_big_font.stringlen(" ")
+            sentence_width += word_width + g.wri_big_font.stringlen(" ")
         if sentence_width > 0:
             description_lines.append(sentence[:-1])
         new_entry.description_lines = description_lines
@@ -227,42 +233,48 @@ def get_open_meteo_uri():
 
 
 def update_agenda():
-    # Obviously passing username and password as URL parameters is not safe but this is all supposed to stay within
-    # local network so I don't really care about anyone seeing this.
-    global agenda
-    caldav_request_uri = "http://" + caldav_uri + ":" + caldav_port + "/agenda?username=" + caldav_username + "&password=" + caldav_password + "&days=60"
+    # Obviously passing username and password as URL parameters is not safe but since entire network traffic is happening
+    # within a local network I'm not to worried about this
+    g.app_state = FETCHING_AGENDA
+    start_led_flashing()
+    caldav_request_uri = "http://" + g.caldav_uri + ":" + g.caldav_port + "/agenda?username=" + g.caldav_username + "&password=" + g.caldav_password + "&days=60"
     print("fetching agenda from calendar...")
     try:
-        agenda = get_agenda_data(caldav_request_uri)
+        g.agenda = get_agenda_data(caldav_request_uri)
+        g.agenda.sort(key=lambda x: (x.year, x.month, x.day, x.time))
+        update_agenda_paging()
+        display_agenda(g.current_agenda_page)
+        g.app_state = AGENDA_SCREEN
     except:
-        stop_led_flashing()
         print("failed to fetch new agenda")
-        return False
-    agenda.sort(key=lambda x: (x.year, x.month, x.day, x.time))
-    update_agenda_paging()
-    return True
+        PicoLabel(g.wri_small_font, "Failed to fetch the agenda.", 4, 10)
+        PicoLabel(g.wri_small_font, "Press the button to retry.", 4, 20)
+        refresh(ssd)
+        ssd.wait_until_ready()
+        ssd.sleep()
+        g.app_state = FAILED_INITIALIZATION
+    stop_led_flashing()
 
 
 def update_agenda_paging():
-    global agenda_pages
-    agenda_pages = []
+    g.agenda_pages = []
     row = 6
     new_agenda_page = AgendaPage()
     print("paging agenda events...")
-    for entry in agenda:
-        row += wri_small_font.height
-        row += (len(entry.description_lines) * wri_big_font.height)
+    for entry in g.agenda:
+        row += g.wri_small_font.height
+        row += (len(entry.description_lines) * g.wri_big_font.height)
         if row >= ssd.height:
-            agenda_pages.append(new_agenda_page)
+            g.agenda_pages.append(new_agenda_page)
             new_agenda_page = AgendaPage()
             row = 6
         new_agenda_page.agendaEntries.append(entry)
-    agenda_pages.append(new_agenda_page)
-    print(f"Num of agenda pages created: {len(agenda_pages)}")
+    g.agenda_pages.append(new_agenda_page)
+    print(f"Num of agenda pages created: {len(g.agenda_pages)}")
 
 
 def display_agenda(pageIndex):
-    if pageIndex < 0 or pageIndex >= len(agenda_pages):
+    if pageIndex < 0 or pageIndex >= len(g.agenda_pages):
         print(f"invalid page index ({pageIndex})")
         return
 
@@ -271,7 +283,7 @@ def display_agenda(pageIndex):
     refresh(ssd, True)
     ssd.wait_until_ready()
     row = 6
-    agenda_page = agenda_pages[pageIndex]
+    agenda_page = g.agenda_pages[pageIndex]
     print(f"displaying {len(agenda_page.agendaEntries)} agenda items...")
     for entry in agenda_page.agendaEntries:
         Label(wri_small_font, row, 0, f"{entry.day} {month_names[entry.month - 1]} {entry.year} {entry.time}")
@@ -279,7 +291,7 @@ def display_agenda(pageIndex):
         for desc_line in entry.description_lines:
             Label(wri_big_font, row, 0, desc_line)
             row += courier20.height()
-    page_label = f"{current_agenda_page + 1} / {len(agenda_pages)}"
+    page_label = f"{g.current_agenda_page + 1} / {len(g.agenda_pages)}"
     page_label_width = wri_small_font.stringlen(page_label)
     Label(wri_small_font, 6, 250 - page_label_width, page_label)
     refresh(ssd)
@@ -332,12 +344,11 @@ def display_image(pos_x, pos_y, width, height, img_data):
 
 
 def display_weather_info(uri):
-    global weather_info
-    if len(weather_info) <= 0:
-        weather_info = fetch_weather_info(uri)
-    forecast_now = weather_info[0]
-    forecast_tomorrow = weather_info[1]
-    forecast_day_after_tomorrow = weather_info[2]
+    if len(g.weather_info) <= 0:
+        g.weather_info = fetch_weather_info(uri)
+    forecast_now = g.weather_info[0]
+    forecast_tomorrow = g.weather_info[1]
+    forecast_day_after_tomorrow = g.weather_info[2]
     refresh(ssd, True)
     ssd.wait_until_ready()
     
@@ -373,14 +384,13 @@ def display_weather_info(uri):
 
 
 def button_handler(pin):
-    global last_button_press_time
-    global requested_agenda_page
     current_time = time.ticks_ms()
-    time_elapsed_ms = time.ticks_diff(current_time, last_button_press_time)
+    time_elapsed_ms = time.ticks_diff(current_time, g.last_button_press_time)
     if time_elapsed_ms < 250:
         return
-    last_button_press_time = time.ticks_ms()
-    requested_agenda_page = (current_agenda_page + 1) % len(agenda_pages)
+    g.last_button_press_time = time.ticks_ms()
+    requested_agenda_page = (g.current_agenda_page + 1) % len(g.agenda_pages)
+    # submit a request to display new agenda page
 
     
 def boot_sequence():
@@ -393,43 +403,30 @@ def boot_sequence():
     set_current_time()
     
     button.irq(trigger=Pin.IRQ_RISING, handler=button_handler)
+    g.open_meteo_uri = get_open_meteo_uri()
+    print(f"open meteo uri: {g.open_meteo_uri}")
 
+    print("initializing display...")
+    g.wri_small_font = Writer(ssd, arial10, verbose=False)
+    g.wri_small_font.set_clip(True, True, False)
 
-boot_sequence()
+    g.wri_big_font = Writer(ssd, courier20, verbose=False)
+    g.wri_big_font.set_clip(True, True, False)
 
-open_meteo_uri = get_open_meteo_uri()
-print(f"open meteo uri: {open_meteo_uri}")
-
-print("initializing display...")
-wri_small_font = Writer(ssd, arial10, verbose=False)
-wri_small_font.set_clip(True, True, False)
-
-wri_big_font = Writer(ssd, courier20, verbose=False)
-wri_big_font.set_clip(True, True, False)
-
-refresh(ssd, True)
-ssd.wait_until_ready()
-
-caldav_username, caldav_password, caldav_uri, caldav_port = read_caldav_credentials()
-start_led_flashing()
-success = update_agenda()
-if success:
-    display_agenda(current_agenda_page)
-else:
-    PicoLabel(wri_small_font, "Failed to fetch the agenda.", 4, 10)
-    PicoLabel(wri_small_font, "Press the button to retry.", 4, 20)
-    refresh(ssd)
+    refresh(ssd, True)
     ssd.wait_until_ready()
-    ssd.sleep()
-# display_weather_info(open_meteo_uri)
-stop_led_flashing()
+
 
 def loop():
-    global current_agenda_page
-    time.sleep(1)
-    if requested_agenda_page != current_agenda_page:
-        current_agenda_page = requested_agenda_page
-        display_agenda(current_agenda_page)
+    time.sleep(60)
 
+
+start_led_flashing()
+boot_sequence()
+g.caldav_username, g.caldav_password, g.caldav_uri, g.caldav_port = read_caldav_credentials()
+update_agenda()
+print("app_state=", g.app_state)
+# display_weather_info(open_meteo_uri)
+stop_led_flashing()
 while True:
     loop()
