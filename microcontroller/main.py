@@ -20,12 +20,12 @@ import forecast_images
 
 from extended_gui import PicoLabel
 
-WEATHER_FORECAST_SCREEN = 1
 AGENDA_SCREEN = 2
-FAILED_INITIALIZATION = 3   
-FETCHING_AGENDA = 4
-FETCHING_WEATHER = 5
-REFRESHING_AGENDA = 6
+AGENDA_FAILED = 3
+AGENDA_UPDATING = 4
+WEATHER_SCREEN = 1
+WEATHER_UPDATING = 5
+WEATHER_FAILED = 8
 INITIALIZING = 7
 
 class WeatherEntry:
@@ -185,7 +185,9 @@ def read_caldav_credentials():
 
 
 def http_get_request(url):
+    print("HTTP request to ", url)
     response = urequests.get(url)
+    print("Response: ", response)
     return response.text
 
 
@@ -235,7 +237,7 @@ def get_open_meteo_uri():
 def update_agenda():
     # Obviously passing username and password as URL parameters is not safe but since entire network traffic is happening
     # within a local network I'm not to worried about this
-    g.app_state = FETCHING_AGENDA
+    g.app_state = AGENDA_UPDATING
     start_led_flashing()
     caldav_request_uri = "http://" + g.caldav_uri + ":" + g.caldav_port + "/agenda?username=" + g.caldav_username + "&password=" + g.caldav_password + "&days=60"
     print("fetching agenda from calendar...")
@@ -252,7 +254,7 @@ def update_agenda():
         refresh(ssd)
         ssd.wait_until_ready()
         ssd.sleep()
-        g.app_state = FAILED_INITIALIZATION
+        g.app_state = AGENDA_FAILED
     stop_led_flashing()
 
 
@@ -286,21 +288,21 @@ def display_agenda(pageIndex):
     agenda_page = g.agenda_pages[pageIndex]
     print(f"displaying {len(agenda_page.agendaEntries)} agenda items...")
     for entry in agenda_page.agendaEntries:
-        Label(wri_small_font, row, 0, f"{entry.day} {month_names[entry.month - 1]} {entry.year} {entry.time}")
+        Label(g.wri_small_font, row, 0, f"{entry.day} {month_names[entry.month - 1]} {entry.year} {entry.time}")
         row += arial10.height()
         for desc_line in entry.description_lines:
-            Label(wri_big_font, row, 0, desc_line)
+            Label(g.wri_big_font, row, 0, desc_line)
             row += courier20.height()
     page_label = f"{g.current_agenda_page + 1} / {len(g.agenda_pages)}"
-    page_label_width = wri_small_font.stringlen(page_label)
-    Label(wri_small_font, 6, 250 - page_label_width, page_label)
+    page_label_width = g.wri_small_font.stringlen(page_label)
+    Label(g.wri_small_font, 6, 250 - page_label_width, page_label)
     refresh(ssd)
     ssd.wait_until_ready()
     ssd.sleep()
 
 
 def fetch_weather_info(uri):
-    Label(wri_big_font, int(ssd.height / 2 - wri_big_font.height / 2), 8, "updating forecast")
+    Label(g.wri_big_font, int(ssd.height / 2 - g.wri_big_font.height / 2), 8, "updating forecast")
     refresh(ssd)
     ssd.wait_until_ready()
     response = http_get_request(uri)
@@ -359,20 +361,20 @@ def display_weather_info(uri):
     icons_height = 60
     icons_size = 64
  
-    PicoLabel(wri_small_font, "Teraz", 0, first_row_height, label_width)
-    PicoLabel(wri_small_font, "Jutro", label_width, first_row_height, label_width)
-    PicoLabel(wri_small_font, "Pojutrze", label_width * 2, first_row_height, label_width)
+    PicoLabel(g.wri_small_font, "Teraz", 0, first_row_height, label_width)
+    PicoLabel(g.wri_small_font, "Jutro", label_width, first_row_height, label_width)
+    PicoLabel(g.wri_small_font, "Pojutrze", label_width * 2, first_row_height, label_width)
     
-    PicoLabel(wri_big_font, f"{forecast_now.temp_min}C", 0, second_row_height, label_width)
-    PicoLabel(wri_big_font, f"{int(forecast_now.precipitation)}%", 0, third_row_height, label_width)
+    PicoLabel(g.wri_big_font, f"{forecast_now.temp_min}C", 0, second_row_height, label_width)
+    PicoLabel(g.wri_big_font, f"{int(forecast_now.precipitation)}%", 0, third_row_height, label_width)
     display_image(9, icons_height, icons_size, icons_size, weather_code_to_icon[forecast_now.weather_code])
     
-    PicoLabel(wri_big_font, f"{forecast_tomorrow.temp_min}C", label_width, second_row_height, label_width)
-    PicoLabel(wri_big_font, f"{forecast_tomorrow.temp_max}C", label_width, third_row_height, label_width)
+    PicoLabel(g.wri_big_font, f"{forecast_tomorrow.temp_min}C", label_width, second_row_height, label_width)
+    PicoLabel(g.wri_big_font, f"{forecast_tomorrow.temp_max}C", label_width, third_row_height, label_width)
     display_image(93, icons_height, icons_size, icons_size, weather_code_to_icon[forecast_tomorrow.weather_code])
     
-    PicoLabel(wri_big_font, f"{forecast_day_after_tomorrow.temp_min}C", label_width * 2, second_row_height, label_width)
-    PicoLabel(wri_big_font, f"{forecast_day_after_tomorrow.temp_max}C", label_width * 2, third_row_height, label_width)
+    PicoLabel(g.wri_big_font, f"{forecast_day_after_tomorrow.temp_min}C", label_width * 2, second_row_height, label_width)
+    PicoLabel(g.wri_big_font, f"{forecast_day_after_tomorrow.temp_max}C", label_width * 2, third_row_height, label_width)
     display_image(176, icons_height, icons_size, icons_size, weather_code_to_icon[forecast_day_after_tomorrow.weather_code])
     
     ssd.vline(label_width, 0, ssd.height, 1)
@@ -388,9 +390,17 @@ def button_handler(pin):
     time_elapsed_ms = time.ticks_diff(current_time, g.last_button_press_time)
     if time_elapsed_ms < 250:
         return
-    g.last_button_press_time = time.ticks_ms()
-    requested_agenda_page = (g.current_agenda_page + 1) % len(g.agenda_pages)
-    # submit a request to display new agenda page
+    if g.app_state == AGENDA_FAILED:
+        g.last_button_press_time = time.ticks_ms()
+        update_agenda()
+    elif g.app_state == AGENDA_SCREEN:
+        requested_agenda_page = (g.current_agenda_page + 1) % len(g.agenda_pages)
+        display_agenda(requested_agenda_page)
+        g.current_agenda_page = requested_agenda_page
+    elif g.app_state == WEATHER_FAILED:
+        pass
+    elif g.app_state == WEATHER_SCREEN:
+        pass
 
     
 def boot_sequence():
