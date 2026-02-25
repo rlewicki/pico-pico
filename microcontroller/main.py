@@ -1,6 +1,7 @@
 import time
 from machine import Pin
 from machine import Timer
+import machine
 import network
 import ntptime
 import urequests
@@ -65,6 +66,9 @@ class Globals:
         self.led_timer = None
         self.wri_small_font = None
         self.wri_big_font = None
+        self.button_single_press = False
+        self.button_double_press = False
+        self.button_long_press = False
         
 
 month_names = [
@@ -238,6 +242,7 @@ def update_agenda():
     # Obviously passing username and password as URL parameters is not safe but since entire network traffic is happening
     # within a local network I'm not to worried about this
     g.app_state = AGENDA_UPDATING
+    g.current_agenda_page = 0
     start_led_flashing()
     caldav_request_uri = "http://" + g.caldav_uri + ":" + g.caldav_port + "/agenda?username=" + g.caldav_username + "&password=" + g.caldav_password + "&days=60"
     print("fetching agenda from calendar...")
@@ -253,7 +258,6 @@ def update_agenda():
         PicoLabel(g.wri_small_font, "Press the button to retry.", 4, 20)
         refresh(ssd)
         ssd.wait_until_ready()
-        ssd.sleep()
         g.app_state = AGENDA_FAILED
     stop_led_flashing()
 
@@ -280,8 +284,6 @@ def display_agenda(pageIndex):
         print(f"invalid page index ({pageIndex})")
         return
 
-    ssd.init()
-    ssd.wait_until_ready()
     refresh(ssd, True)
     ssd.wait_until_ready()
     row = 6
@@ -298,13 +300,11 @@ def display_agenda(pageIndex):
     Label(g.wri_small_font, 6, 250 - page_label_width, page_label)
     refresh(ssd)
     ssd.wait_until_ready()
-    ssd.sleep()
 
 
 def fetch_weather_info(uri):
     Label(g.wri_big_font, int(ssd.height / 2 - g.wri_big_font.height / 2), 8, "updating forecast")
-    refresh(ssd)
-    ssd.wait_until_ready()
+    refresh(ssd, True)
     response = http_get_request(uri)
     forecast = json.loads(response)
     current = WeatherEntry()
@@ -361,9 +361,9 @@ def display_weather_info(uri):
     icons_height = 60
     icons_size = 64
  
-    PicoLabel(g.wri_small_font, "Teraz", 0, first_row_height, label_width)
-    PicoLabel(g.wri_small_font, "Jutro", label_width, first_row_height, label_width)
-    PicoLabel(g.wri_small_font, "Pojutrze", label_width * 2, first_row_height, label_width)
+    PicoLabel(g.wri_small_font, "Now", 0, first_row_height, label_width)
+    PicoLabel(g.wri_small_font, "Tomorrow", label_width, first_row_height, label_width)
+    PicoLabel(g.wri_small_font, "DaT", label_width * 2, first_row_height, label_width)
     
     PicoLabel(g.wri_big_font, f"{forecast_now.temp_min}C", 0, second_row_height, label_width)
     PicoLabel(g.wri_big_font, f"{int(forecast_now.precipitation)}%", 0, third_row_height, label_width)
@@ -382,7 +382,6 @@ def display_weather_info(uri):
 
     refresh(ssd)
     ssd.wait_until_ready()
-    ssd.sleep()
 
 
 def button_handler(pin):
@@ -390,17 +389,8 @@ def button_handler(pin):
     time_elapsed_ms = time.ticks_diff(current_time, g.last_button_press_time)
     if time_elapsed_ms < 250:
         return
-    if g.app_state == AGENDA_FAILED:
-        g.last_button_press_time = time.ticks_ms()
-        update_agenda()
-    elif g.app_state == AGENDA_SCREEN:
-        requested_agenda_page = (g.current_agenda_page + 1) % len(g.agenda_pages)
-        display_agenda(requested_agenda_page)
-        g.current_agenda_page = requested_agenda_page
-    elif g.app_state == WEATHER_FAILED:
-        pass
-    elif g.app_state == WEATHER_SCREEN:
-        pass
+    g.last_button_press_time = time.ticks_ms()
+    g.button_single_press = True
 
     
 def boot_sequence():
@@ -410,33 +400,59 @@ def boot_sequence():
     wifi_ssid, wifi_password = read_wifi_credentials()
     print("connecting to wifi network...")
     connect_to_wifi(wifi_ssid, wifi_password)
+    print("setting current time...")
     set_current_time()
     
+    print("initializing button handler...")
     button.irq(trigger=Pin.IRQ_RISING, handler=button_handler)
+    
+    print("reading open meteo API uri...")
     g.open_meteo_uri = get_open_meteo_uri()
     print(f"open meteo uri: {g.open_meteo_uri}")
+    
+    print("reading caldav credentials...")
+    g.caldav_username, g.caldav_password, g.caldav_uri, g.caldav_port = read_caldav_credentials()
 
     print("initializing display...")
     g.wri_small_font = Writer(ssd, arial10, verbose=False)
     g.wri_small_font.set_clip(True, True, False)
-
     g.wri_big_font = Writer(ssd, courier20, verbose=False)
     g.wri_big_font.set_clip(True, True, False)
 
+    ssd.init()
     refresh(ssd, True)
     ssd.wait_until_ready()
 
 
 def loop():
-    time.sleep(60)
+    machine.lightsleep(60 * 60 * 1000)
+    if not g.button_single_press and not g.button_double_press and not g.button_long_press:
+        return
+    ssd.init()
+    if g.button_long_press:
+        # not supported now
+        return
+
+    if g.app_state == AGENDA_FAILED:
+        update_agenda()
+    elif g.app_state == AGENDA_SCREEN:
+        if g.button_single_press:
+            g.current_agenda_page = (g.current_agenda_page + 1) % len(g.agenda_pages)
+            display_agenda(g.current_agenda_page)
+        elif g.button_double_press:
+            display_weather_info(g.open_meteo_uri)
+    else:
+        print("button press not handled in current state")
+    g.button_single_press = False
+    g.button_long_press = False
+    g.button_double_press = False
+    ssd.sleep()
 
 
 start_led_flashing()
 boot_sequence()
-g.caldav_username, g.caldav_password, g.caldav_uri, g.caldav_port = read_caldav_credentials()
 update_agenda()
-print("app_state=", g.app_state)
-# display_weather_info(open_meteo_uri)
+ssd.sleep()
 stop_led_flashing()
 while True:
     loop()
