@@ -55,20 +55,26 @@ class Globals:
         self.caldav_username = ""
         self.caldav_password = ""
         self.caldav_uri = ""
+        self.caldav_port = ""
         self.open_meteo_uri = ""
         self.agenda = []
         self.agenda_pages = []
         self.current_agenda_page = 0
         self.weather_info = []
         self.last_button_press_time = time.ticks_ms()
+        self.last_button_release_time = time.ticks_ms()
         self.white_led_value = 0
         self.led_counter = 0
-        self.led_timer = None
+        self.led_timer = Timer()
         self.wri_small_font = None
         self.wri_big_font = None
         self.button_single_press = False
         self.button_double_press = False
         self.button_long_press = False
+        self.button_single_press_timer = Timer()
+        self.button_long_press_timer = Timer()
+        self.was_long_press_triggered = False
+        self.was_double_press_triggered = False
         
 
 month_names = [
@@ -130,7 +136,7 @@ def toggle_led(source):
 
 def start_led_flashing():
     if g.led_counter == 0:
-        g.led_timer = Timer(period=500, mode=Timer.PERIODIC, callback = toggle_led)
+        g.led_timer.init(period=500, mode=Timer.PERIODIC, callback = toggle_led)
     g.led_counter += 1
     
 
@@ -362,6 +368,7 @@ def display_weather_info(uri):
     icons_size = 64
  
     PicoLabel(g.wri_small_font, "Now", 0, first_row_height, label_width)
+    # Replace Tomorrow and DaT with actual names of the days
     PicoLabel(g.wri_small_font, "Tomorrow", label_width, first_row_height, label_width)
     PicoLabel(g.wri_small_font, "DaT", label_width * 2, first_row_height, label_width)
     
@@ -384,15 +391,54 @@ def display_weather_info(uri):
     ssd.wait_until_ready()
 
 
-def button_handler(pin):
-    current_time = time.ticks_ms()
-    time_elapsed_ms = time.ticks_diff(current_time, g.last_button_press_time)
-    if time_elapsed_ms < 250:
-        return
-    g.last_button_press_time = time.ticks_ms()
+def button_single_press_callback(source):
+    print("single button press detected")
     g.button_single_press = True
 
-    
+
+def button_long_press_callback(source):
+    print("long button press detected")
+    g.was_long_press_triggered = True
+    g.button_long_press = True
+
+def button_double_press_callback(source):
+    pass
+
+
+def button_state_changed(pin):
+    LONG_PRESS_TIME = 3000
+    DOUBLE_PRESS_TIME = 200
+    DEBOUNCE_TIME = 125
+    current_time = time.ticks_ms()
+    if pin.value() == 0:
+        time_elapsed_since_release_ms = time.ticks_diff(current_time, g.last_button_release_time)
+        if time_elapsed_since_release_ms < DEBOUNCE_TIME:
+            return
+        time_elapsed_since_last_press_ms = time.ticks_diff(current_time, g.last_button_press_time)
+        print("registering button release. time_elapsed_since_last_press_ms =", time_elapsed_since_last_press_ms)
+        g.button_long_press_timer.deinit()
+        g.last_button_release_time = current_time
+        if g.was_long_press_triggered or g.was_double_press_triggered:
+            g.was_long_press_triggered = False
+            g.was_double_press_triggered = False
+        else:
+            g.button_single_press_timer.init(period=DOUBLE_PRESS_TIME, mode=Timer.ONE_SHOT, callback = button_single_press_callback)
+    else:
+        time_elapsed_since_press_ms = time.ticks_diff(current_time, g.last_button_press_time)
+        if time_elapsed_since_press_ms < DEBOUNCE_TIME:
+            return
+        g.last_button_press_time = current_time
+        time_elapsed_since_release_ms = time.ticks_diff(current_time, g.last_button_release_time)
+        print("registering button press. time_since_last_release_ms = ", time_elapsed_since_release_ms)
+        if time_elapsed_since_release_ms < DOUBLE_PRESS_TIME:
+            print("double press detected")
+            g.button_single_press_timer.deinit()
+            g.was_double_press_triggered = True
+            g.button_double_press = True
+        else:
+            g.button_long_press_timer.init(period=LONG_PRESS_TIME, mode=Timer.ONE_SHOT, callback = button_long_press_callback)
+
+
 def boot_sequence():
     print("booting up...")
     time.sleep(0.33)
@@ -404,7 +450,7 @@ def boot_sequence():
     set_current_time()
     
     print("initializing button handler...")
-    button.irq(trigger=Pin.IRQ_RISING, handler=button_handler)
+    button.irq(trigger=Pin.IRQ_RISING | Pin.IRQ_FALLING, handler=button_state_changed)
     
     print("reading open meteo API uri...")
     g.open_meteo_uri = get_open_meteo_uri()
@@ -429,12 +475,16 @@ def loop():
     if not g.button_single_press and not g.button_double_press and not g.button_long_press:
         return
     ssd.init()
+    print("running update loop...")
     if g.button_long_press:
         # not supported now
         return
 
     if g.app_state == AGENDA_FAILED:
-        update_agenda()
+        if g.button_single_press:
+            update_agenda()
+        else:
+            display_weather_info(g.open_meteo_uri)
     elif g.app_state == AGENDA_SCREEN:
         if g.button_single_press:
             g.current_agenda_page = (g.current_agenda_page + 1) % len(g.agenda_pages)
