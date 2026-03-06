@@ -258,8 +258,10 @@ def update_agenda():
         update_agenda_paging()
         display_agenda(g.current_agenda_page)
         g.app_state = AGENDA_SCREEN
-    except:
-        print("failed to fetch new agenda")
+    except Exception as e:
+        print("failed to fetch new agenda:", type(e), e.args, e)
+        refresh(ssd, True)
+        ssd.wait_until_ready()
         PicoLabel(g.wri_small_font, "Failed to fetch the agenda.", 4, 10)
         PicoLabel(g.wri_small_font, "Press the button to retry.", 4, 20)
         refresh(ssd)
@@ -351,9 +353,28 @@ def display_image(pos_x, pos_y, width, height, img_data):
                 ssd.pixel(pos_x + x, pos_y + y, 0xff)
 
 
-def display_weather_info(uri):
+def update_weather():
+    g.app_state = WEATHER_UPDATING
+    start_led_flashing()
+
+    # We should not only check if the data is empty, but also the last time we updated.
+    # Otherwise we will only ever update the weather on demand rather than periodically without
+    # any user input.
     if len(g.weather_info) <= 0:
-        g.weather_info = fetch_weather_info(uri)
+        try:
+            g.weather_info = fetch_weather_info(g.open_meteo_uri)
+        except Exception as e:
+            print("failed to fetch weather update:", e)
+            refresh(ssd, True)
+            ssd.wait_until_ready()
+            PicoLabel(g.wri_small_font, "Failed to fetch the weather update.", 4, 10)
+            PicoLabel(g.wri_small_font, "Press the button to retry.", 4, 20)
+            refresh(ssd)
+            ssd.wait_until_ready()
+            g.app_state = WEATHER_FAILED
+            stop_led_flashing()
+            return
+
     forecast_now = g.weather_info[0]
     forecast_tomorrow = g.weather_info[1]
     forecast_day_after_tomorrow = g.weather_info[2]
@@ -389,6 +410,8 @@ def display_weather_info(uri):
 
     refresh(ssd)
     ssd.wait_until_ready()
+    g.app_state = WEATHER_SCREEN
+    stop_led_flashing()
 
 
 def button_single_press_callback(source):
@@ -400,9 +423,6 @@ def button_long_press_callback(source):
     print("long button press detected")
     g.was_long_press_triggered = True
     g.button_long_press = True
-
-def button_double_press_callback(source):
-    pass
 
 
 def button_state_changed(pin):
@@ -484,13 +504,18 @@ def loop():
         if g.button_single_press:
             update_agenda()
         else:
-            display_weather_info(g.open_meteo_uri)
+            update_weather()
     elif g.app_state == AGENDA_SCREEN:
         if g.button_single_press:
             g.current_agenda_page = (g.current_agenda_page + 1) % len(g.agenda_pages)
             display_agenda(g.current_agenda_page)
         elif g.button_double_press:
-            display_weather_info(g.open_meteo_uri)
+            update_weather()
+    elif g.app_state == WEATHER_FAILED or g.app_state == WEATHER_SCREEN:
+        if g.button_single_press:
+            update_weather()
+        elif g.button_double_press:
+            update_agenda()
     else:
         print("button press not handled in current state")
     g.button_single_press = False
