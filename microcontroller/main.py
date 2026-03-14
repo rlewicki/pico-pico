@@ -6,6 +6,7 @@ import network
 import ntptime
 import urequests
 import json
+import forecast_images
 
 from color_setup import ssd
 from gui.core.writer import Writer
@@ -16,8 +17,6 @@ from gui.widgets.label import ALIGN_LEFT
 from gui.widgets.label import ALIGN_RIGHT
 import gui.fonts.arial10 as arial10
 import gui.fonts.courier20 as courier20
-
-import forecast_images
 
 from extended_gui import PicoLabel
 
@@ -39,10 +38,14 @@ class WeatherEntry:
 
 class AgendaEntry:
     def __init__(self) -> None:
-        self.day = -1
-        self.month = -1
-        self.year = -1
-        self.time = None
+        self.start_day = -1
+        self.start_month = -1
+        self.start_year = -1
+        self.start_time = None
+        self.end_day = -1
+        self.end_month = -1
+        self.end_year = -1
+        self.is_whole_day_event = False
         self.description_lines = []
 
 class AgendaPage:
@@ -57,10 +60,10 @@ class Globals:
         self.caldav_uri = ""
         self.caldav_port = ""
         self.open_meteo_uri = ""
-        self.agenda = []
-        self.agenda_pages = []
+        self.agenda: list[AgendaEntry] = []
+        self.agenda_pages: list[AgendaPage] = []
         self.current_agenda_page = 0
-        self.weather_info = []
+        self.weather_info: list[WeatherEntry] = []
         self.last_button_press_time = time.ticks_ms()
         self.last_button_release_time = time.ticks_ms()
         self.white_led_value = 0
@@ -75,6 +78,9 @@ class Globals:
         self.button_long_press_timer = Timer()
         self.was_long_press_triggered = False
         self.was_double_press_triggered = False
+        self.wlan = network.WLAN(network.STA_IF)
+        self.wifi_ssid = ""
+        self.wifi_password = ""
         
 
 month_names = [
@@ -148,14 +154,21 @@ def stop_led_flashing():
         white_led.value(0)
 
 
-def connect_to_wifi(ssid, password):
-    wlan = network.WLAN(network.STA_IF)
-    wlan.active(True)
-    wlan.connect(ssid, password)
-    while not wlan.isconnected():
+def disconnect_from_wifi():
+    print("disconnecting from wifi...")
+    g.wlan.disconnect()
+    g.wlan.active(False)
+    network.WLAN(network.STA_IF).deinit()
+
+
+def connect_to_wifi():
+    print("connecting to wifi...")
+    g.wlan.active(True)
+    g.wlan.connect(g.wifi_ssid, g.wifi_password)
+    while not g.wlan.isconnected():
         print("waiting for Internet connection...")
-        time.sleep(1)
-    print(wlan.ifconfig())
+        time.sleep_ms(1000)
+    print(g.wlan.ifconfig())
 
 
 def set_current_time():
@@ -176,9 +189,8 @@ def read_wifi_credentials():
     if len(data) < 2:
         print("failed to find wifi credentials")
         exit(1)
-    ssid = data[0]
-    password = data[1]
-    return ssid, password
+    g.wifi_ssid = data[0]
+    g.wifi_password = data[1]
 
 
 def read_caldav_credentials():
@@ -201,18 +213,25 @@ def http_get_request(url):
     return response.text
 
 
-def get_agenda_data(caldav_url):
+def get_agenda_data(caldav_url) -> list[AgendaEntry]:
     response = http_get_request(caldav_url)
     events = json.loads(response)
-    agenda = []
+    agenda: list[AgendaEntry] = []
     for event in events:
         new_entry = AgendaEntry()
-        date = event['start'].split()
-        date_components = date[0].split('/')
-        new_entry.day = int(date_components[1])
-        new_entry.month = int(date_components[0])
-        new_entry.year = int(date_components[2])
-        new_entry.time = date[1]
+        start_date = event['start_date'].split()
+        start_date_components = start_date[0].split('/')
+        new_entry.start_day = int(start_date_components[1])
+        new_entry.start_month = int(start_date_components[0])
+        new_entry.start_year = int(start_date_components[2])
+        new_entry.is_whole_day_event = bool(event['whole_day_event'])
+        if not new_entry.is_whole_day_event:
+            new_entry.start_time = start_date[1]
+        end_date = event['end_date'].split()
+        end_date_components = end_date[0].split('/')
+        new_entry.end_day = int(end_date_components[1])
+        new_entry.end_month = int(end_date_components[0])
+        new_entry.end_year = int(end_date_components[2])
         description_words = event['summary'].split(" ")
         description_lines = []
         sentence = ""
@@ -249,12 +268,11 @@ def update_agenda():
     # within a local network I'm not to worried about this
     g.app_state = AGENDA_UPDATING
     g.current_agenda_page = 0
-    start_led_flashing()
     caldav_request_uri = "http://" + g.caldav_uri + ":" + g.caldav_port + "/agenda?username=" + g.caldav_username + "&password=" + g.caldav_password + "&days=60"
     print("fetching agenda from calendar...")
     try:
         g.agenda = get_agenda_data(caldav_request_uri)
-        g.agenda.sort(key=lambda x: (x.year, x.month, x.day, x.time))
+        g.agenda.sort(key=lambda x: (x.start_year, x.start_month, x.start_day, x.start_time))
         update_agenda_paging()
         display_agenda(g.current_agenda_page)
         g.app_state = AGENDA_SCREEN
@@ -267,7 +285,6 @@ def update_agenda():
         refresh(ssd)
         ssd.wait_until_ready()
         g.app_state = AGENDA_FAILED
-    stop_led_flashing()
 
 
 def update_agenda_paging():
@@ -298,7 +315,7 @@ def display_agenda(pageIndex):
     agenda_page = g.agenda_pages[pageIndex]
     print(f"displaying {len(agenda_page.agendaEntries)} agenda items...")
     for entry in agenda_page.agendaEntries:
-        Label(g.wri_small_font, row, 0, f"{entry.day} {month_names[entry.month - 1]} {entry.year} {entry.time}")
+        Label(g.wri_small_font, row, 0, f"{entry.start_day} {month_names[entry.start_month - 1]} {entry.start_year} {entry.start_time}")
         row += arial10.height()
         for desc_line in entry.description_lines:
             Label(g.wri_big_font, row, 0, desc_line)
@@ -310,7 +327,7 @@ def display_agenda(pageIndex):
     ssd.wait_until_ready()
 
 
-def fetch_weather_info(uri):
+def fetch_weather_info(uri) -> list[WeatherEntry]:
     Label(g.wri_big_font, int(ssd.height / 2 - g.wri_big_font.height / 2), 8, "updating forecast")
     refresh(ssd, True)
     response = http_get_request(uri)
@@ -355,7 +372,6 @@ def display_image(pos_x, pos_y, width, height, img_data):
 
 def update_weather():
     g.app_state = WEATHER_UPDATING
-    start_led_flashing()
 
     # We should not only check if the data is empty, but also the last time we updated.
     # Otherwise we will only ever update the weather on demand rather than periodically without
@@ -411,7 +427,6 @@ def update_weather():
     refresh(ssd)
     ssd.wait_until_ready()
     g.app_state = WEATHER_SCREEN
-    stop_led_flashing()
 
 
 def button_single_press_callback(source):
@@ -461,11 +476,11 @@ def button_state_changed(pin):
 
 def boot_sequence():
     print("booting up...")
-    time.sleep(0.33)
+    time.sleep_ms(330)
     print("reading config files...")
-    wifi_ssid, wifi_password = read_wifi_credentials()
+    read_wifi_credentials()
     print("connecting to wifi network...")
-    connect_to_wifi(wifi_ssid, wifi_password)
+    connect_to_wifi()
     print("setting current time...")
     set_current_time()
     
@@ -490,17 +505,37 @@ def boot_sequence():
     ssd.wait_until_ready()
 
 
+def any_button_pressed():
+    return g.button_single_press or g.button_double_press or g.button_long_press
+
+
 def loop():
-    machine.lightsleep(60 * 60 * 1000)
-    if not g.button_single_press and not g.button_double_press and not g.button_long_press:
+    if g.wlan.isconnected():
+        disconnect_from_wifi()
+
+    # This is small time buffor to make sure everything that was called moments before calling
+    # sleep is being flushed and do not cause a wake up. One example is printing a message which
+    # gets flushed a bit later and is causing a wake up because of UART communication.
+    print("going into lightsleep...")
+    time.sleep_ms(1000)
+    machine.lightsleep(1000 * 60 * 60)
+    print("waking up...")
+
+    # Give the device a bit of time after waking up to update its state. This allows to avoid the race condition
+    # between button release triggering the wake up, and updating the program's state.
+    time.sleep_ms(500)
+
+    if not any_button_pressed():
+        print("no input registered, skipping update loop...")
         return
+    
+    start_led_flashing()
+    connect_to_wifi()
     ssd.init()
     print("running update loop...")
     if g.button_long_press:
-        # not supported now
-        return
-
-    if g.app_state == AGENDA_FAILED:
+        pass
+    elif g.app_state == AGENDA_FAILED:
         if g.button_single_press:
             update_agenda()
         else:
@@ -521,13 +556,12 @@ def loop():
     g.button_single_press = False
     g.button_long_press = False
     g.button_double_press = False
-    ssd.sleep()
+    stop_led_flashing()
 
 
 start_led_flashing()
 boot_sequence()
 update_agenda()
-ssd.sleep()
 stop_led_flashing()
 while True:
     loop()

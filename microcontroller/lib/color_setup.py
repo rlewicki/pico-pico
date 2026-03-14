@@ -58,6 +58,6 @@ pcs = machine.Pin(CS_PIN, machine.Pin.OUT)
 spi = machine.SPI(1, baudrate=4_000_000)
 pdc = machine.Pin(DC_PIN, machine.Pin.OUT)
 gc.collect()  # Precaution before instantiating framebuf
-ssd = SSD(spi, pcs, pdc, prst, pbusy, landscape=True, asyn=False)  # Create a display instance
+ssd = SSD(spi, pcs, pdc, prst, pbusy, landscape=True)  # Create a display instance
 # ssdred = SSDred(spi, pcs, pdc, prst, pbusy, landscape=False)  # Cread a red display instance (just for B model)
 ssd.demo_mode = False
