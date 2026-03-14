@@ -22,7 +22,7 @@ def fill_event(component, calendar) -> dict[str, str]:
         cur["whole_day_event"] = True
     endDate = component.get("dtend")
     if endDate and endDate.dt:
-        cur["end"] = endDate.dt.strftime("%m/%d/%Y %H:%M")
+        cur["end_date"] = endDate.dt.strftime("%m/%d/%Y %H:%M")
     return cur
 
 caldav_url = os.environ.get("CALDAV_URL")
