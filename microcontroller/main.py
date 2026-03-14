@@ -164,6 +164,7 @@ def disconnect_from_wifi():
 def connect_to_wifi():
     print("connecting to wifi...")
     g.wlan.active(True)
+    g.wlan.config(pm = 0xa11140)
     g.wlan.connect(g.wifi_ssid, g.wifi_password)
     while not g.wlan.isconnected():
         print("waiting for Internet connection...")
