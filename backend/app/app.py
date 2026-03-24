@@ -1,5 +1,3 @@
-from pprint import pprint
-
 from flask import Flask
 from flask import request
 from caldav import get_davclient
@@ -8,6 +6,7 @@ from datetime import datetime
 from datetime import timedelta
 import os
 from unidecode import unidecode
+import random
 
 def fill_event(component, calendar) -> dict[str, str]:
     cur = {}
@@ -34,7 +33,7 @@ def agenda():
     caldav_username = request.args.get('username')
     caldav_password = request.args.get('password')
     days = int(request.args.get('days'))
-    if caldav_username == None or caldav_password == None:
+    if caldav_username is None or caldav_password is None:
         return "failed to provide username or password", 400
     
     with get_davclient(url=caldav_url, username=caldav_username, password=caldav_password) as client:
@@ -55,6 +54,24 @@ def agenda():
                     events.append(fill_event(component, calendar))
         return json.dumps(events, indent=2, ensure_ascii=False)
     return "failed to create caldav client", 400
+
+
+@app.route('/quote')
+def quote():
+    quotes = []
+    with open("quotes.txt") as f:
+        for line in f:
+            quote_author_pair = line.split("$")
+            quotes.append(quote_author_pair)
+    selected_quote = random.randint(0, len(quotes) - 1)
+    a = quotes[selected_quote][1].replace('\n', '')
+    q = quotes[selected_quote][0].replace('\n', '')
+    response = {
+        "author": a,
+        "quote": q 
+    }
+    return response, 200
+
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8000)
