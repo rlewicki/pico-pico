@@ -1,5 +1,5 @@
 services: 
-  caldav-http: 
+  pico-pico-backend: 
     build:
      context: app
      target: builder
