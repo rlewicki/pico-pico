@@ -24,7 +24,7 @@ def fill_event(component, calendar) -> dict[str, str]:
         cur["end_date"] = endDate.dt.strftime("%m/%d/%Y %H:%M")
     return cur
 
-caldav_url = os.environ.get("CALDAV_URL")
+caldav_url = os.environ.get("CALDAV_URI")
 
 app = Flask(__name__)
 

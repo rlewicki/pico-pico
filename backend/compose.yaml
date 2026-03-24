@@ -6,6 +6,6 @@ services:
     ports: 
       - '3003:8000'
     environment:
-      - CALDAV_SERVER_URI
+      - CALDAV_URI
     env_file:
       - .env
