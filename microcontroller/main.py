@@ -58,8 +58,9 @@ class Globals:
         self.app_state = INITIALIZING
         self.caldav_username = ""
         self.caldav_password = ""
-        self.caldav_uri = ""
-        self.caldav_port = ""
+        self.backend_name = ""
+        self.backend_port = ""
+        self.backend_full_uri = ""
         self.open_meteo_uri = ""
         self.agenda: list[AgendaEntry] = []
         self.agenda_pages: list[AgendaPage] = []
@@ -211,15 +212,32 @@ def read_caldav_credentials():
 
 def http_get_request(url):
     print("HTTP request to ", url)
-    response = urequests.get(url)
-    print("Response: ", response)
-    return response.text
+    try:
+        response = urequests.get(url)
+        print("Response: ", response)
+        return True, response.text
+    except Exception as e:
+        print("HTTP request failed:", type(e), e.args, e)
+        return False, ""
+
+
+def get_quote_of_the_day():
+    request_uri = g.backend_full_uri + "/quote"
+    succeeded, response = http_get_request(request_uri)
+    if succeeded:
+        quote_info = json.loads(response)
+        return quote_info["author"], quote_info["quote"]
+    else:
+        return "", ""
 
 
 def get_agenda_data(caldav_url) -> list[AgendaEntry]:
-    response = http_get_request(caldav_url)
-    events = json.loads(response)
     agenda: list[AgendaEntry] = []
+    succeeded, response = http_get_request(caldav_url)
+    if not succeeded:
+        print("failed to fetch agenda from the server")
+        return agenda
+    events = json.loads(response)
     for event in events:
         new_entry = AgendaEntry()
         start_date = event['start_date'].split()
@@ -272,7 +290,7 @@ def update_agenda():
     # within a local network I'm not to worried about this
     g.app_state = AGENDA_UPDATING
     g.current_agenda_page = 0
-    caldav_request_uri = "http://" + g.caldav_uri + ":" + g.caldav_port + \
+    caldav_request_uri = g.backend_full_uri + \
         "/agenda?username=" + g.caldav_username + \
         "&password=" + g.caldav_password + "&days=60"
     print("fetching agenda from calendar...")
@@ -525,7 +543,8 @@ def boot_sequence():
     print(f"open meteo uri: {g.open_meteo_uri}")
 
     print("reading caldav credentials...")
-    g.caldav_username, g.caldav_password, g.caldav_uri, g.caldav_port = read_caldav_credentials()
+    g.caldav_username, g.caldav_password, g.backend_name, g.backend_port = read_caldav_credentials()
+    g.backend_full_uri = "http://" + g.backend_name + ":" + g.backend_port
 
     print("initializing display...")
     g.wri_small_font = Writer(ssd, arial10, verbose=False)
@@ -567,7 +586,9 @@ def loop():
     ssd.init()
     print("running update loop...")
     if g.button_long_press:
-        pass
+        author, quote = get_quote_of_the_day()
+        print(author)
+        print(quote)
     elif g.app_state == AGENDA_FAILED:
         if g.button_single_press:
             update_agenda()
