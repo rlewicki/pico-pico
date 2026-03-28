@@ -231,6 +231,28 @@ def get_quote_of_the_day():
         return "", ""
 
 
+def justify_text(text: str, font, max_width) -> list[str]:
+    result: list[str] = []
+    white_space_width = font.stringlen(" ")
+    words = text.split(" ")
+    current_width = 0
+    current_text_line = ""
+    for word in words:
+        word_width = font.stringlen(word)
+        if current_width + word_width > max_width:
+            result.append(current_text_line)
+            current_width = 0
+            current_text_line = ""
+        current_text_line += word
+        current_width += word_width
+        if current_width + white_space_width > max_width:
+            current_width = 0
+            current_text_line = ""
+        else:
+            current_text_line += " "
+    return result
+
+
 def get_agenda_data(caldav_url) -> list[AgendaEntry]:
     agenda: list[AgendaEntry] = []
     succeeded, response = http_get_request(caldav_url)
@@ -253,21 +275,8 @@ def get_agenda_data(caldav_url) -> list[AgendaEntry]:
         new_entry.end_day = int(end_date_components[1])
         new_entry.end_month = int(end_date_components[0])
         new_entry.end_year = int(end_date_components[2])
-        description_words = event['summary'].split(" ")
-        description_lines = []
-        sentence = ""
-        sentence_width = 0
-        for word in description_words:
-            word_width = g.wri_big_font.stringlen(word)
-            if sentence_width + word_width > ssd.width:
-                description_lines.append(sentence)
-                sentence = ""
-                sentence_width = 0
-            sentence += word + " "
-            sentence_width += word_width + g.wri_big_font.stringlen(" ")
-        if sentence_width > 0:
-            description_lines.append(sentence[:-1])
-        new_entry.description_lines = description_lines
+        summary = event['summary'].split(" ")
+        new_entry.description_lines = justify_text(summary, g.wri_big_font, ssd.width)
         agenda.append(new_entry)
     return agenda
 
@@ -287,7 +296,7 @@ def get_open_meteo_uri():
 
 def update_agenda():
     # Obviously passing username and password as URL parameters is not safe but since entire network traffic is happening
-    # within a local network I'm not to worried about this
+    # within a local network I'm not too worried about this
     g.app_state = AGENDA_UPDATING
     g.current_agenda_page = 0
     caldav_request_uri = g.backend_full_uri + \
@@ -340,7 +349,9 @@ def display_agenda(pageIndex):
     agenda_page = g.agenda_pages[pageIndex]
     print(f"displaying {len(agenda_page.agendaEntries)} agenda items...")
     for entry in agenda_page.agendaEntries:
-        Label(g.wri_small_font, row, 0,
+        Label(g.wri_small_font,
+              row,
+              0,
               f"{entry.start_day} {month_names[entry.start_month - 1]} {entry.start_year} {entry.start_time}")
         row += arial10.height()
         for desc_line in entry.description_lines:
@@ -586,9 +597,16 @@ def loop():
     ssd.init()
     print("running update loop...")
     if g.button_long_press:
+        refresh(ssd, True)
+        ssd.wait_until_ready()
         author, quote = get_quote_of_the_day()
-        print(author)
-        print(quote)
+        justified_quote = justify_text(quote, g.wri_small_font, ssd.width)
+        carriage_height = 6
+        for line in justified_quote:
+            Label(g.wri_small_font, carriage_height, 0, line)
+            carriage_height += 10
+        refresh(ssd)
+        ssd.wait_until_ready()
     elif g.app_state == AGENDA_FAILED:
         if g.button_single_press:
             update_agenda()
