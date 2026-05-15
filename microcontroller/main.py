@@ -11,7 +11,6 @@ import forecast_images
 from lib.color_setup import ssd
 from lib.gui.core.writer import Writer
 from lib.gui.core.nanogui import refresh
-from lib.gui.widgets.label import Label
 import lib.gui.fonts.arial10 as arial10
 import lib.gui.fonts.courier20 as courier20
 
@@ -46,7 +45,7 @@ class AgendaEntry:
         self.end_month = -1
         self.end_year = -1
         self.is_whole_day_event = False
-        self.description_lines = []
+        self.summary = "" 
 
 
 class AgendaPage:
@@ -279,8 +278,8 @@ def get_agenda_data(caldav_url) -> list[AgendaEntry]:
         new_entry.end_day = int(end_date_components[1])
         new_entry.end_month = int(end_date_components[0])
         new_entry.end_year = int(end_date_components[2])
-        summary = event['summary'].split(" ")
-        new_entry.description_lines = justify_text(summary, g.wri_big_font, ssd.width)
+        new_entry.summary = event['summary']
+        # new_entry.description_lines = justify_text(summary, g.wri_big_font, ssd.width)
         agenda.append(new_entry)
     return agenda
 
@@ -331,13 +330,14 @@ def update_agenda_paging():
     new_agenda_page = AgendaPage()
     print("paging agenda events...")
     for entry in g.agenda:
-        row += g.wri_small_font.height
-        row += (len(entry.description_lines) * g.wri_big_font.height)
+        row += g.wri_small_font.height * 2
+        # row += (len(entry.summary) * g.wri_small_font.height)
         if row >= ssd.height:
             g.agenda_pages.append(new_agenda_page)
             new_agenda_page = AgendaPage()
             row = 6
         new_agenda_page.agendaEntries.append(entry)
+        row += g.wri_small_font.height
     g.agenda_pages.append(new_agenda_page)
     print(f"Num of agenda pages created: {len(g.agenda_pages)}")
 
@@ -353,25 +353,26 @@ def display_agenda(pageIndex):
     agenda_page = g.agenda_pages[pageIndex]
     print(f"displaying {len(agenda_page.agendaEntries)} agenda items...")
     for entry in agenda_page.agendaEntries:
-        Label(g.wri_small_font,
-              row,
-              0,
-              f"{entry.start_day} {month_names[entry.start_month - 1]} {entry.start_year} {entry.start_time}")
-        row += arial10.height()
-        for desc_line in entry.description_lines:
-            Label(g.wri_big_font, row, 0, desc_line)
-            row += courier20.height()
+        g.wri_small_font.set_textpos(ssd, row, 0)
+        g.wri_small_font.printstring(f"{entry.start_day} {month_names[entry.start_month - 1]} {entry.start_year} {entry.start_time}", True)
+        row += g.wri_small_font.height
+
+        g.wri_small_font.set_textpos(ssd, row, 0)
+        g.wri_small_font.printstring(entry.summary)
+        row += g.wri_small_font.height * 2
     page_label = f"{g.current_agenda_page + 1} / {len(g.agenda_pages)}"
     page_label_width = g.wri_small_font.stringlen(page_label)
-    Label(g.wri_small_font, 6, 250 - page_label_width, page_label)
+    g.wri_small_font.set_textpos(ssd, 6, 250 - page_label_width)
+    g.wri_small_font.printstring(page_label, True)
     refresh(ssd)
     ssd.wait_until_ready()
 
 
 def fetch_weather_info(uri) -> list[WeatherEntry]:
-    Label(g.wri_big_font, int(ssd.height / 2 -
-          g.wri_big_font.height / 2), 8, "updating forecast")
-    refresh(ssd, True)
+    g.wri_big_font.set_textpos(ssd, 0, 0)
+    g.wri_big_font.printstring("updating forecast...", True)
+    refresh(ssd)
+    ssd.wait_until_ready()
     success, response = http_get_request(uri)
     if not success:
         raise Exception("HTTP request exception")
@@ -494,7 +495,7 @@ def button_long_press_callback(source):
 
 
 def button_state_changed(pin):
-    LONG_PRESS_TIME = 3000
+    LONG_PRESS_TIME = 1000
     DOUBLE_PRESS_TIME = 200
     DEBOUNCE_TIME = 125
     current_time = time.ticks_ms()
@@ -559,9 +560,9 @@ def boot_sequence():
 
     print("initializing display...")
     g.wri_small_font = Writer(ssd, arial10, verbose=False)
-    g.wri_small_font.set_clip(True, True, False)
+    g.wri_small_font.set_clip(True, True, True)
     g.wri_big_font = Writer(ssd, courier20, verbose=False)
-    g.wri_big_font.set_clip(True, True, False)
+    g.wri_big_font.set_clip(True, True, True)
 
     ssd.init()
     refresh(ssd, True)
@@ -600,13 +601,13 @@ def loop():
     print("running update loop...")
     if g.button_long_press:
         refresh(ssd, True)
-        ssd.wait_until_ready()
         author, quote = get_quote_of_the_day()
-        justified_quote = justify_text(quote, g.wri_small_font, ssd.width)
-        carriage_height = 6
-        for line in justified_quote:
-            Label(g.wri_small_font, carriage_height, 0, line)
-            carriage_height += 10
+        ssd.wait_until_ready()
+        g.wri_small_font.set_textpos(ssd, 6, 6)
+        g.wri_small_font.printstring(quote)
+        author_len = g.wri_big_font.stringlen(author)
+        g.wri_big_font.set_textpos(ssd, ssd.height - 24, ssd.width - author_len - 6)
+        g.wri_big_font.printstring(author, True)
         refresh(ssd)
         ssd.wait_until_ready()
     elif g.app_state == AGENDA_FAILED:
