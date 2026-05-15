@@ -169,9 +169,13 @@ def connect_to_wifi():
     g.wlan.active(True)
     g.wlan.config(pm=0xa11140)
     g.wlan.connect(g.wifi_ssid, g.wifi_password)
+    attempts = 0
     while not g.wlan.isconnected():
+        attempts += 1
         print("waiting for Internet connection...")
         time.sleep_ms(1000)
+        if attempts > 120:
+            machine.reset()
     print(g.wlan.ifconfig())
 
 
@@ -257,8 +261,7 @@ def get_agenda_data(caldav_url) -> list[AgendaEntry]:
     agenda: list[AgendaEntry] = []
     succeeded, response = http_get_request(caldav_url)
     if not succeeded:
-        print("failed to fetch agenda from the server")
-        return agenda
+        raise Exception("failed to fetch agenda from the server")
     events = json.loads(response)
     for event in events:
         new_entry = AgendaEntry()
@@ -314,8 +317,8 @@ def update_agenda():
         print("failed to fetch new agenda:", type(e), e.args, e)
         refresh(ssd, True)
         ssd.wait_until_ready()
-        PicoLabel(g.wri_small_font, "Failed to fetch the agenda.", 4, 10)
-        PicoLabel(g.wri_small_font, "Press the button to retry.", 4, 20)
+        g.wri_small_font.set_textpos(ssd, 0, 0)
+        g.wri_small_font.printstring("Failed to fetch agenda.\nPress the button to retry.")
         refresh(ssd)
         ssd.wait_until_ready()
         g.app_state = AGENDA_FAILED
@@ -368,16 +371,19 @@ def fetch_weather_info(uri) -> list[WeatherEntry]:
     Label(g.wri_big_font, int(ssd.height / 2 -
           g.wri_big_font.height / 2), 8, "updating forecast")
     refresh(ssd, True)
-    response = http_get_request(uri)
+    success, response = http_get_request(uri)
+    if not success:
+        raise Exception("HTTP request exception")
     forecast = json.loads(response)
     current = WeatherEntry()
-    current.date = forecast["daily"]["time"][0]
+    daily_data = forecast["daily"]
+    
+    current.date = daily_data["time"][0]
     current.temp_min = forecast["current"]["temperature_2m"]
     current.temp_max = current.temp_min
     current.precipitation = forecast["current"]["precipitation"]
     current.weather_code = forecast["current"]["weather_code"]
 
-    daily_data = forecast["daily"]
     tomorrow = WeatherEntry()
     tomorrow.date = daily_data["time"][1]
     tomorrow.temp_min = daily_data["temperature_2m_min"][1]
@@ -421,9 +427,8 @@ def update_weather():
             print("failed to fetch weather update:", e)
             refresh(ssd, True)
             ssd.wait_until_ready()
-            PicoLabel(g.wri_small_font,
-                      "Failed to fetch the weather update.", 4, 10)
-            PicoLabel(g.wri_small_font, "Press the button to retry.", 4, 20)
+            g.wri_small_font.set_textpos(ssd, 0, 0)
+            g.wri_small_font.printstring("Failed to fetch the weather data.\nPress the button to retry")
             refresh(ssd)
             ssd.wait_until_ready()
             g.app_state = WEATHER_FAILED
@@ -445,34 +450,20 @@ def update_weather():
 
     PicoLabel(g.wri_small_font, "Now", 0, first_row_height, label_width)
     # Replace Tomorrow and DaT with actual names of the days
-    PicoLabel(g.wri_small_font, "Tomorrow", label_width,
-              first_row_height, label_width)
-    PicoLabel(g.wri_small_font, "DaT", label_width *
-              2, first_row_height, label_width)
+    PicoLabel(g.wri_small_font, "Tomorrow", label_width, first_row_height, label_width)
+    PicoLabel(g.wri_small_font, "DaT", label_width * 2, first_row_height, label_width)
 
-    PicoLabel(g.wri_big_font, f"{forecast_now.temp_min}C",
-              0, second_row_height, label_width)
-    PicoLabel(g.wri_big_font,
-              f"{int(forecast_now.precipitation)}%",
-              0,
-              third_row_height,
-              label_width)
-    display_image(9, icons_height, icons_size, icons_size,
-                  weather_code_to_icon[forecast_now.weather_code])
+    PicoLabel(g.wri_big_font, f"{forecast_now.temp_min}C", 0, second_row_height, label_width)
+    PicoLabel(g.wri_big_font, f"{int(forecast_now.precipitation)}%",0, third_row_height, label_width)
+    display_image(9, icons_height, icons_size, icons_size, weather_code_to_icon[forecast_now.weather_code])
 
-    PicoLabel(g.wri_big_font, f"{forecast_tomorrow.temp_min}C",
-              label_width, second_row_height, label_width)
-    PicoLabel(g.wri_big_font, f"{forecast_tomorrow.temp_max}C",
-              label_width, third_row_height, label_width)
-    display_image(93, icons_height, icons_size, icons_size,
-                  weather_code_to_icon[forecast_tomorrow.weather_code])
+    PicoLabel(g.wri_big_font, f"{forecast_tomorrow.temp_min}C", label_width, second_row_height, label_width)
+    PicoLabel(g.wri_big_font, f"{forecast_tomorrow.temp_max}C", label_width, third_row_height, label_width)
+    display_image(93, icons_height, icons_size, icons_size, weather_code_to_icon[forecast_tomorrow.weather_code])
 
-    PicoLabel(g.wri_big_font, f"{forecast_day_after_tomorrow.temp_min}C",
-              label_width * 2, second_row_height, label_width)
-    PicoLabel(g.wri_big_font, f"{forecast_day_after_tomorrow.temp_max}C",
-              label_width * 2, third_row_height, label_width)
-    display_image(176, icons_height, icons_size, icons_size,
-                  weather_code_to_icon[forecast_day_after_tomorrow.weather_code])
+    PicoLabel(g.wri_big_font, f"{forecast_day_after_tomorrow.temp_min}C", label_width * 2, second_row_height, label_width)
+    PicoLabel(g.wri_big_font, f"{forecast_day_after_tomorrow.temp_max}C", label_width * 2, third_row_height, label_width)
+    display_image(176, icons_height, icons_size, icons_size, weather_code_to_icon[forecast_day_after_tomorrow.weather_code])
 
     ssd.vline(label_width, 0, ssd.height, 1)
     ssd.vline(label_width * 2, 0, ssd.height, 1)
@@ -576,16 +567,18 @@ def loop():
     if g.wlan.isconnected():
         disconnect_from_wifi()
 
-    # This is small time buffor to make sure everything that was called moments before calling
-    # sleep is being flushed and do not cause a wake up. One example is printing a message which
-    # gets flushed a bit later and is causing a wake up because of UART communication.
-    print("going into lightsleep...")
-    time.sleep_ms(1000)
-    machine.lightsleep(1000 * 60 * 60)
+    # This is small time buffer to make sure everything that was called moments before calling
+    # sleep is being flushed and do not cause a wake-up. One example is printing a message which
+    # gets flushed a bit later and is causing a wake-up because of UART communication.
+    print("going into lightsleep in 5 seconds...")
+    time.sleep_ms(5000)
+    if not any_button_pressed():
+        machine.lightsleep(1000 * 60 * 60)
+
     print("waking up...")
 
     # Give the device a bit of time after waking up to update its state. This allows to avoid the race condition
-    # between button release triggering the wake up, and updating the program's state.
+    # between button release triggering the wake-up, and updating the program's state.
     time.sleep_ms(500)
 
     if not any_button_pressed():

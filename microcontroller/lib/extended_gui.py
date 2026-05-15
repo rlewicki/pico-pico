@@ -12,4 +12,6 @@ class PicoLabel(Label):
             x = x + (width - text_width) // 2
         elif align == ALIGN_RIGHT:
             x = x + (width - text_width)
+
+        writer.set_textpos(writer.device, y, x)
         super().__init__(writer, y, x, text)
