@@ -27,16 +27,17 @@ INITIALIZING = 7
 
 
 class WeatherEntry:
-    def __init__(self) -> None:
-        self.date = -1
+    def __init__(self):
+        self.date = None 
         self.temp_min = -1
         self.temp_max = -1
         self.precipitation = -1
         self.weather_code = -1
+        self.day_name = ""
 
 
 class AgendaEntry:
-    def __init__(self) -> None:
+    def __init__(self):
         self.start_day = -1
         self.start_month = -1
         self.start_year = -1
@@ -49,12 +50,12 @@ class AgendaEntry:
 
 
 class AgendaPage:
-    def __init__(self) -> None:
+    def __init__(self):
         self.agendaEntries = []
 
 
 class Globals:
-    def __init__(self) -> None:
+    def __init__(self):
         self.app_state = INITIALIZING
         self.caldav_username = ""
         self.caldav_password = ""
@@ -375,28 +376,36 @@ def fetch_weather_info(uri) -> list[WeatherEntry]:
     if not success:
         raise Exception("HTTP request exception")
     forecast = json.loads(response)
-    current = WeatherEntry()
     daily_data = forecast["daily"]
     
-    current.date = daily_data["time"][0]
+    days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+    
+    current = WeatherEntry()
+    year, month, day = [int(x) for x in daily_data["time"][0].split("-")]
+    current.date = time.mktime((year, month, day, 0, 0, 0, 0, 0))
     current.temp_min = forecast["current"]["temperature_2m"]
     current.temp_max = current.temp_min
     current.precipitation = forecast["current"]["precipitation"]
     current.weather_code = forecast["current"]["weather_code"]
+    current.day_name = days[time.localtime(current.date)[6]]
 
     tomorrow = WeatherEntry()
-    tomorrow.date = daily_data["time"][1]
+    year, month, day = [int(x) for x in daily_data["time"][1].split("-")]
+    tomorrow.date = time.mktime((year, month, day, 0, 0, 0, 0, 0))
     tomorrow.temp_min = daily_data["temperature_2m_min"][1]
     tomorrow.temp_max = daily_data["temperature_2m_max"][1]
     tomorrow.precipitation = daily_data["precipitation_probability_max"][1]
     tomorrow.weather_code = daily_data["weather_code"][1]
+    tomorrow.day_name = days[time.localtime(tomorrow.date)[6]]
 
     day_after_tomorrow = WeatherEntry()
-    day_after_tomorrow.date = daily_data["time"][2]
+    year, month, day = [int(x) for x in daily_data["time"][2].split("-")]
+    day_after_tomorrow.date = time.mktime((year, month, day, 0, 0, 0, 0, 0))
     day_after_tomorrow.temp_min = daily_data["temperature_2m_min"][2]
     day_after_tomorrow.temp_max = daily_data["temperature_2m_max"][2]
     day_after_tomorrow.precipitation = daily_data["precipitation_probability_max"][2]
     day_after_tomorrow.weather_code = daily_data["weather_code"][2]
+    day_after_tomorrow.day_name = days[time.localtime(day_after_tomorrow.date)[6]]
 
     weather_info = [
         current,
@@ -448,10 +457,10 @@ def update_weather():
     icons_height = 60
     icons_size = 64
 
-    PicoLabel(g.wri_small_font, "Now", 0, first_row_height, label_width)
+    PicoLabel(g.wri_small_font, forecast_now.day_name, 0, first_row_height, label_width)
     # Replace Tomorrow and DaT with actual names of the days
-    PicoLabel(g.wri_small_font, "Tomorrow", label_width, first_row_height, label_width)
-    PicoLabel(g.wri_small_font, "DaT", label_width * 2, first_row_height, label_width)
+    PicoLabel(g.wri_small_font, forecast_tomorrow.day_name, label_width, first_row_height, label_width)
+    PicoLabel(g.wri_small_font, forecast_day_after_tomorrow.day_name, label_width * 2, first_row_height, label_width)
 
     PicoLabel(g.wri_big_font, f"{forecast_now.temp_min}C", 0, second_row_height, label_width)
     PicoLabel(g.wri_big_font, f"{int(forecast_now.precipitation)}%",0, third_row_height, label_width)
