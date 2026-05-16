@@ -9,3 +9,4 @@ services:
       - CALDAV_URI
     env_file:
       - .env
+    restart: always
