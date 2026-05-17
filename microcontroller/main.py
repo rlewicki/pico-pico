@@ -7,6 +7,7 @@ import ntptime
 import urequests
 import json
 import forecast_images
+import rp2
 
 from lib.color_setup import ssd
 from lib.gui.core.writer import Writer
@@ -24,6 +25,7 @@ WEATHER_UPDATING = 5
 WEATHER_FAILED = 8
 INITIALIZING = 7
 
+rp2.country("PL")
 
 class WeatherEntry:
     def __init__(self):
@@ -44,13 +46,14 @@ class AgendaEntry:
         self.end_day = -1
         self.end_month = -1
         self.end_year = -1
+        self.end_time = None
         self.is_whole_day_event = False
         self.summary = "" 
 
 
 class AgendaPage:
     def __init__(self):
-        self.agendaEntries = []
+        self.entries = []
 
 
 class Globals:
@@ -151,16 +154,19 @@ def start_led_flashing():
 
 def stop_led_flashing():
     g.led_counter -= 1
-    if g.led_counter == 0:
+    if g.led_counter <= 0:
         g.led_timer.deinit()
         g.white_led_value = 0
         white_led.value(0)
+        g.led_counter = 0
 
 
 def disconnect_from_wifi():
     print("disconnecting from wifi...")
     g.wlan.disconnect()
+    time.sleep_ms(1000)
     g.wlan.active(False)
+    time.sleep_ms(1000)
     network.WLAN(network.STA_IF).deinit()
 
 
@@ -168,13 +174,25 @@ def connect_to_wifi():
     print("connecting to wifi...")
     g.wlan.active(True)
     g.wlan.config(pm=0xa11140)
+    time.sleep_ms(500)
     g.wlan.connect(g.wifi_ssid, g.wifi_password)
     attempts = 0
     while not g.wlan.isconnected():
-        attempts += 1
-        print("waiting for Internet connection...")
+        # CYW43 status codes:
+        # 0  = idle, 1 = connecting, 2 = wrong password,
+        # 3 = no AP found, -1 = connect failed, -2 = no resources
         time.sleep_ms(1000)
-        if attempts > 120:
+        status = g.wlan.status()
+        print(f"status: {status}, waiting for Internet connection...")
+        attempts += 1
+        if status < 0:
+            g.wlan = network.WLAN(network.STA_IF)
+            g.wlan.active(False)
+            time.sleep_ms(500)
+            g.wlan.active(True)
+            time.sleep_ms(500)
+            g.wlan.connect(g.wifi_ssid, g.wifi_password)
+        elif attempts > 60:
             machine.reset()
     print(g.wlan.ifconfig())
 
@@ -265,7 +283,10 @@ def get_agenda_data(caldav_url) -> list[AgendaEntry]:
     events = json.loads(response)
     for event in events:
         new_entry = AgendaEntry()
+        
         start_date = event['start_date'].split()
+        end_date = event['end_date'].split()
+        
         start_date_components = start_date[0].split('/')
         new_entry.start_day = int(start_date_components[1])
         new_entry.start_month = int(start_date_components[0])
@@ -273,13 +294,12 @@ def get_agenda_data(caldav_url) -> list[AgendaEntry]:
         new_entry.is_whole_day_event = bool(event['whole_day_event'])
         if not new_entry.is_whole_day_event:
             new_entry.start_time = start_date[1]
-        end_date = event['end_date'].split()
+            new_entry.end_time = end_date[1]
         end_date_components = end_date[0].split('/')
         new_entry.end_day = int(end_date_components[1])
         new_entry.end_month = int(end_date_components[0])
         new_entry.end_year = int(end_date_components[2])
         new_entry.summary = event['summary']
-        # new_entry.description_lines = justify_text(summary, g.wri_big_font, ssd.width)
         agenda.append(new_entry)
     return agenda
 
@@ -308,8 +328,7 @@ def update_agenda():
     print("fetching agenda from calendar...")
     try:
         g.agenda = get_agenda_data(caldav_request_uri)
-        g.agenda.sort(key=lambda x: (
-            x.start_year, x.start_month, x.start_day, x.start_time))
+        g.agenda.sort(key=lambda x: (x.start_month, x.start_day, x.start_time))
         update_agenda_paging()
         display_agenda(g.current_agenda_page)
         g.app_state = AGENDA_SCREEN
@@ -331,38 +350,47 @@ def update_agenda_paging():
     print("paging agenda events...")
     for entry in g.agenda:
         row += g.wri_small_font.height * 2
-        # row += (len(entry.summary) * g.wri_small_font.height)
         if row >= ssd.height:
             g.agenda_pages.append(new_agenda_page)
             new_agenda_page = AgendaPage()
             row = 6
-        new_agenda_page.agendaEntries.append(entry)
+        new_agenda_page.entries.append(entry)
         row += g.wri_small_font.height
     g.agenda_pages.append(new_agenda_page)
     print(f"Num of agenda pages created: {len(g.agenda_pages)}")
 
 
-def display_agenda(pageIndex):
-    if pageIndex < 0 or pageIndex >= len(g.agenda_pages):
-        print(f"invalid page index ({pageIndex})")
+def display_agenda(page_index):
+    if page_index < 0 or page_index >= len(g.agenda_pages):
+        print(f"invalid page index ({page_index})")
         return
 
     refresh(ssd, True)
     ssd.wait_until_ready()
     row = 6
-    agenda_page = g.agenda_pages[pageIndex]
-    print(f"displaying {len(agenda_page.agendaEntries)} agenda items...")
-    for entry in agenda_page.agendaEntries:
+    agenda_page = g.agenda_pages[page_index]
+    print(f"displaying {len(agenda_page.entries)} agenda items...")
+    for entry in agenda_page.entries:
         g.wri_small_font.set_textpos(ssd, row, 0)
-        g.wri_small_font.printstring(f"{entry.start_day} {month_names[entry.start_month - 1]} {entry.start_year} {entry.start_time}", True)
-        row += g.wri_small_font.height
+        date_string = f"{entry.start_day} {month_names[entry.start_month - 1]}"
+        if not entry.is_whole_day_event:
+            date_string += f" {entry.start_time}"
 
+        if entry.start_day != entry.end_day or entry.start_month != entry.end_month:
+            date_string += f" - {entry.end_day} {month_names[entry.end_month - 1]}"
+            if not entry.is_whole_day_event:
+                date_string += f" {entry.end_time}"
+        elif not entry.is_whole_day_event:
+            date_string += f" - {entry.end_time}"
+
+        g.wri_small_font.printstring(date_string)
+        row += g.wri_small_font.height
         g.wri_small_font.set_textpos(ssd, row, 0)
         g.wri_small_font.printstring(entry.summary)
         row += g.wri_small_font.height * 2
     page_label = f"{g.current_agenda_page + 1} / {len(g.agenda_pages)}"
     page_label_width = g.wri_small_font.stringlen(page_label)
-    g.wri_small_font.set_textpos(ssd, 6, 250 - page_label_width)
+    g.wri_small_font.set_textpos(ssd, ssd.height - 16, 250 - page_label_width)
     g.wri_small_font.printstring(page_label, True)
     refresh(ssd)
     ssd.wait_until_ready()
@@ -459,7 +487,6 @@ def update_weather():
     icons_size = 64
 
     PicoLabel(g.wri_small_font, forecast_now.day_name, 0, first_row_height, label_width)
-    # Replace Tomorrow and DaT with actual names of the days
     PicoLabel(g.wri_small_font, forecast_tomorrow.day_name, label_width, first_row_height, label_width)
     PicoLabel(g.wri_small_font, forecast_day_after_tomorrow.day_name, label_width * 2, first_row_height, label_width)
 
@@ -492,11 +519,15 @@ def button_long_press_callback(source):
     print("long button press detected")
     g.was_long_press_triggered = True
     g.button_long_press = True
+    
+    
+def wake_up(pin):
+    print("waking up from sleep")
 
 
 def button_state_changed(pin):
     LONG_PRESS_TIME = 1000
-    DOUBLE_PRESS_TIME = 200
+    DOUBLE_PRESS_TIME = 250
     DEBOUNCE_TIME = 125
     current_time = time.ticks_ms()
     if pin.value() == 0:
@@ -517,20 +548,18 @@ def button_state_changed(pin):
             g.button_single_press_timer.init(
                 period=DOUBLE_PRESS_TIME, mode=Timer.ONE_SHOT, callback=button_single_press_callback)
     else:
-        time_elapsed_since_press_ms = time.ticks_diff(
-            current_time, g.last_button_press_time)
+        time_elapsed_since_press_ms = time.ticks_diff(current_time, g.last_button_press_time)
         if time_elapsed_since_press_ms < DEBOUNCE_TIME:
             return
         g.last_button_press_time = current_time
-        time_elapsed_since_release_ms = time.ticks_diff(
-            current_time, g.last_button_release_time)
-        print("registering button press. time_since_last_release_ms = ",
-              time_elapsed_since_release_ms)
+        time_elapsed_since_release_ms = time.ticks_diff(current_time, g.last_button_release_time)
+        print("registering button press. time_since_last_release_ms = ", time_elapsed_since_release_ms)
         if time_elapsed_since_release_ms < DOUBLE_PRESS_TIME:
             print("double press detected")
             g.button_single_press_timer.deinit()
             g.was_double_press_triggered = True
             g.button_double_press = True
+            g.button_single_press = False
         else:
             g.button_long_press_timer.init(
                 period=LONG_PRESS_TIME, mode=Timer.ONE_SHOT, callback=button_long_press_callback)
@@ -546,9 +575,7 @@ def boot_sequence():
     print("setting current time...")
     set_current_time()
 
-    print("initializing button handler...")
-    button.irq(trigger=Pin.IRQ_RISING | Pin.IRQ_FALLING,
-               handler=button_state_changed)
+    # print("initializing button handler...")
 
     print("reading open meteo API uri...")
     g.open_meteo_uri = get_open_meteo_uri()
@@ -564,71 +591,84 @@ def boot_sequence():
     g.wri_big_font = Writer(ssd, courier20, verbose=False)
     g.wri_big_font.set_clip(True, True, True)
 
-    ssd.init()
-    refresh(ssd, True)
-    ssd.wait_until_ready()
-
 
 def any_button_pressed():
     return g.button_single_press or g.button_double_press or g.button_long_press
 
 
 def loop():
-    if g.wlan.isconnected():
-        disconnect_from_wifi()
+    button.irq(trigger=Pin.IRQ_RISING | Pin.IRQ_FALLING, handler=button_state_changed)
 
-    # This is small time buffer to make sure everything that was called moments before calling
-    # sleep is being flushed and do not cause a wake-up. One example is printing a message which
-    # gets flushed a bit later and is causing a wake-up because of UART communication.
-    print("going into lightsleep in 5 seconds...")
-    time.sleep_ms(5000)
+    print("idling...")
+    white_led.value(1)
+    idle_time = 10 * 30
+    for i in range(idle_time):
+        time.sleep_ms(100)
+        if any_button_pressed():
+            break
+    white_led.value(0)
+    print("checking any button pressed...")
     if not any_button_pressed():
+        if g.wlan.isconnected():
+            disconnect_from_wifi()
+        print("entering lightsleep")
+        button.irq(trigger=Pin.IRQ_RISING | Pin.IRQ_FALLING, handler=wake_up)
+        
+        time.sleep_ms(500)
+
         machine.lightsleep(1000 * 60 * 60)
-
-    print("waking up...")
-
-    # Give the device a bit of time after waking up to update its state. This allows to avoid the race condition
-    # between button release triggering the wake-up, and updating the program's state.
-    time.sleep_ms(500)
-
-    if not any_button_pressed():
-        print("no input registered, skipping update loop...")
+        print("waking up...")
+        time.sleep_ms(500)
         return
 
     start_led_flashing()
-    connect_to_wifi()
+
+    # Give the device a bit of time after waking up to update its state. This allows to avoid the race condition
+    # between button release triggering the wake-up, and updating the program's state.
+
+    if not any_button_pressed():
+        print("no input registered, skipping update loop...")
+        stop_led_flashing()
+        return
+
     ssd.init()
     print("running update loop...")
     if g.button_long_press:
         refresh(ssd, True)
+        connect_to_wifi()
         author, quote = get_quote_of_the_day()
         ssd.wait_until_ready()
-        g.wri_small_font.set_textpos(ssd, 6, 6)
+        g.wri_small_font.wrap = True
+        g.wri_small_font.set_textpos(ssd, 0, 0)
+        print(quote)
         g.wri_small_font.printstring(quote)
-        author_len = g.wri_big_font.stringlen(author)
-        g.wri_big_font.set_textpos(ssd, ssd.height - 24, ssd.width - author_len - 6)
-        g.wri_big_font.printstring(author, True)
+        author_len = g.wri_small_font.stringlen(author)
+        g.wri_small_font.set_textpos(ssd, ssd.height - 14, ssd.width - author_len - 6)
+        g.wri_small_font.printstring(author, True)
         refresh(ssd)
         ssd.wait_until_ready()
     elif g.app_state == AGENDA_FAILED:
+        connect_to_wifi()
         if g.button_single_press:
             update_agenda()
         else:
             update_weather()
     elif g.app_state == AGENDA_SCREEN:
         if g.button_single_press:
-            g.current_agenda_page = (
-                g.current_agenda_page + 1) % len(g.agenda_pages)
+            g.current_agenda_page = (g.current_agenda_page + 1) % len(g.agenda_pages)
             display_agenda(g.current_agenda_page)
         elif g.button_double_press:
+            connect_to_wifi()
             update_weather()
     elif g.app_state == WEATHER_FAILED or g.app_state == WEATHER_SCREEN:
+        connect_to_wifi()
         if g.button_single_press:
             update_weather()
         elif g.button_double_press:
             update_agenda()
     else:
         print("button press not handled in current state")
+
     g.button_single_press = False
     g.button_long_press = False
     g.button_double_press = False
