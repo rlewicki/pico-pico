@@ -8,21 +8,21 @@ import os
 from unidecode import unidecode
 import random
 
-def fill_event(component, calendar) -> dict[str, str]:
-    cur = {}
-    cur["summary"] = unidecode(component.get("summary"))
+def fill_event(component) -> dict[str, str]:
+    event_data = {}
+    event_data["summary"] = unidecode(component.get("summary"))
     description = component.get("description")
     if description is not None:
-        cur["description"] = unidecode(description)
+        event_data["description"] = unidecode(description)
     start_date = component.get("dtstart")
-    cur["start_date"] = start_date.dt.strftime("%m/%d/%Y %H:%M")
-    cur["whole_day_event"] = False
+    event_data["start_date"] = start_date.dt.strftime("%m/%d/%Y %H:%M")
+    event_data["whole_day_event"] = False
     if "value" in start_date.params:
-        cur["whole_day_event"] = True
-    endDate = component.get("dtend")
-    if endDate and endDate.dt:
-        cur["end_date"] = endDate.dt.strftime("%m/%d/%Y %H:%M")
-    return cur
+        event_data["whole_day_event"] = True
+    end_date = component.get("dtend")
+    if end_date and end_date.dt:
+        event_data["end_date"] = end_date.dt.strftime("%m/%d/%Y %H:%M")
+    return event_data
 
 caldav_url = os.environ.get("CALDAV_URI")
 
@@ -51,7 +51,7 @@ def agenda():
                 for component in event.icalendar_instance.walk():
                     if component.name != "VEVENT":
                         continue
-                    events.append(fill_event(component, calendar))
+                    events.append(fill_event(component))
         return json.dumps(events, indent=2, ensure_ascii=False)
     return "failed to create caldav client", 400
 
