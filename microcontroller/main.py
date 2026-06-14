@@ -462,24 +462,19 @@ def display_image(pos_x, pos_y, width, height, img_data):
 
 def update_weather():
     g.app_state = WEATHER_UPDATING
-
-    # We should not only check if the data is empty, but also the last time we
-    # updated. Otherwise we will only ever update the weather on demand rather
-    # than periodically without any user input.
-    if len(g.weather_info) <= 0:
-        try:
-            g.weather_info = fetch_weather_info(g.open_meteo_uri)
-        except Exception as e:
-            print("failed to fetch weather update:", e)
-            refresh(ssd, True)
-            ssd.wait_until_ready()
-            g.wri_small_font.set_textpos(ssd, 0, 0)
-            g.wri_small_font.printstring("Failed to fetch the weather data.\nPress the button to retry")
-            refresh(ssd)
-            ssd.wait_until_ready()
-            g.app_state = WEATHER_FAILED
-            stop_led_flashing()
-            return
+    try:
+        g.weather_info = fetch_weather_info(g.open_meteo_uri)
+    except Exception as e:
+        print("failed to fetch weather update:", e)
+        refresh(ssd, True)
+        ssd.wait_until_ready()
+        g.wri_small_font.set_textpos(ssd, 0, 0)
+        g.wri_small_font.printstring("Failed to fetch the weather data.\nPress the button to retry")
+        refresh(ssd)
+        ssd.wait_until_ready()
+        g.app_state = WEATHER_FAILED
+        stop_led_flashing()
+        return
 
     forecast_now = g.weather_info[0]
     forecast_tomorrow = g.weather_info[1]
