@@ -198,15 +198,18 @@ def connect_to_wifi():
 
 
 def set_current_time():
-    ntptime.settime()
-    current_time = time.localtime()
-    print("{}:{}:{}, {}/{}/{}".format(
-        current_time[3] + 1,
-        current_time[4],
-        current_time[5],
-        current_time[2],
-        current_time[1],
-        current_time[0]))
+    try:
+        ntptime.settime()
+        current_time = time.localtime()
+        print("{}:{}:{}, {}/{}/{}".format(
+            current_time[3] + 1,
+            current_time[4],
+            current_time[5],
+            current_time[2],
+            current_time[1],
+            current_time[0]))
+    except Exception as e:
+        print(e)
 
 
 def read_wifi_credentials():
@@ -295,6 +298,9 @@ def get_agenda_data(caldav_url) -> list[AgendaEntry]:
         if not new_entry.is_whole_day_event:
             new_entry.start_time = start_date[1]
             new_entry.end_time = end_date[1]
+        else:
+            new_entry.start_time = "00:00"
+            new_entry.end_time = "00:00"
         end_date_components = end_date[0].split('/')
         new_entry.end_day = int(end_date_components[1])
         new_entry.end_month = int(end_date_components[0])
@@ -328,10 +334,6 @@ def update_agenda():
     print("fetching agenda from calendar...")
     try:
         g.agenda = get_agenda_data(caldav_request_uri)
-        g.agenda.sort(key=lambda x: (x.start_month, x.start_day, x.start_time))
-        update_agenda_paging()
-        display_agenda(g.current_agenda_page)
-        g.app_state = AGENDA_SCREEN
     except Exception as e:
         print("failed to fetch new agenda:", type(e), e.args, e)
         refresh(ssd, True)
@@ -341,6 +343,12 @@ def update_agenda():
         refresh(ssd)
         ssd.wait_until_ready()
         g.app_state = AGENDA_FAILED
+        return
+
+    g.agenda.sort(key=lambda x: (x.start_month, x.start_day, x.start_time))
+    update_agenda_paging()
+    display_agenda(g.current_agenda_page)
+    g.app_state = AGENDA_SCREEN
 
 
 def update_agenda_paging():
