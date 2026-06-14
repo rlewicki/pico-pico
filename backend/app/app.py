@@ -1,6 +1,7 @@
 from flask import Flask
 from flask import request
 from caldav import get_davclient
+from zoneinfo import ZoneInfo
 import json
 from datetime import datetime
 from datetime import timedelta
@@ -32,10 +33,12 @@ app = Flask(__name__)
 def agenda():
     caldav_username = request.args.get('username')
     caldav_password = request.args.get('password')
-    days = int(request.args.get('days'))
+    days = 30
     if caldav_username is None or caldav_password is None:
         return "failed to provide username or password", 400
-    
+
+    now = datetime.now(tz=ZoneInfo("Europe/Warsaw"))
+    threshold = now + timedelta(days=days)
     with get_davclient(url=caldav_url, username=caldav_username, password=caldav_password) as client:
         client.ssl_verify_cert = False
         principal = client.principal()
@@ -43,9 +46,10 @@ def agenda():
         events = []
         for calendar in calendars:
             events_fetched = calendar.search(
-                start=datetime.now(),
-                end=datetime.now() + timedelta(days=days),
+                start=now,
+                end=threshold,
                 event=True,
+                expand=True,
             )
             for event in events_fetched:
                 for component in event.icalendar_instance.walk():
