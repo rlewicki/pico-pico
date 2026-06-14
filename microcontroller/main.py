@@ -13,7 +13,7 @@ from lib.color_setup import ssd
 from lib.gui.core.writer import Writer
 from lib.gui.core.nanogui import refresh
 import lib.gui.fonts.arial10 as arial10
-import lib.gui.fonts.courier20 as courier20
+import lib.gui.fonts.font10 as font10 
 
 from lib.extended_gui import PicoLabel
 
@@ -591,7 +591,7 @@ def boot_sequence():
     print("initializing display...")
     g.wri_small_font = Writer(ssd, arial10, verbose=False)
     g.wri_small_font.set_clip(True, True, True)
-    g.wri_big_font = Writer(ssd, courier20, verbose=False)
+    g.wri_big_font = Writer(ssd, font10, verbose=False)
     g.wri_big_font.set_clip(True, True, True)
 
 
@@ -641,10 +641,11 @@ def loop():
         connect_to_wifi()
         author, quote = get_quote_of_the_day()
         ssd.wait_until_ready()
-        g.wri_small_font.wrap = True
-        g.wri_small_font.set_textpos(ssd, 0, 0)
+        g.wri_big_font.wrap = True
+        g.wri_big_font.set_textpos(ssd, 0, 0)
         print(quote)
-        g.wri_small_font.printstring(quote)
+        g.wri_big_font.printstring(quote)
+        g.wri_small_font.wrap = True
         author_len = g.wri_small_font.stringlen(author)
         g.wri_small_font.set_textpos(ssd, ssd.height - 14, ssd.width - author_len - 6)
         g.wri_small_font.printstring(author, True)
