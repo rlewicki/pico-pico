@@ -8,6 +8,9 @@ import urequests
 import json
 import forecast_images
 import rp2
+import gc
+import micropython
+import sys
 
 from lib.color_setup import ssd
 from lib.gui.core.writer import Writer
@@ -16,6 +19,9 @@ import lib.gui.fonts.arial10 as arial10
 import lib.gui.fonts.font10 as font10 
 
 from lib.extended_gui import PicoLabel
+
+# 100 is recommended size according to the MicroPython documentation
+micropython.alloc_emergency_exception_buf(100)
 
 AGENDA_SCREEN = 2
 AGENDA_FAILED = 3
@@ -86,6 +92,7 @@ class Globals:
         self.wlan = network.WLAN(network.STA_IF)
         self.wifi_ssid = ""
         self.wifi_password = ""
+        self.irq_errors = []
 
 
 month_names = [
@@ -136,6 +143,33 @@ g = Globals()
 button = Pin(3, Pin.IN, Pin.PULL_DOWN)
 white_led = Pin(2, Pin.OUT)
 white_led.value(0)
+
+
+def log_irq_error(context, exc):
+    # Called from inside IRQ/Timer callbacks. Keep this as cheap as possible:
+    # no file I/O here (that belongs on the main thread), just stash enough
+    # to write out later. Bounded so a repeating error can't grow forever.
+    try:
+        if len(g.irq_errors) < 10:
+            g.irq_errors.append((context, exc))
+    except Exception:
+        pass
+
+
+def flush_irq_errors():
+    # Safe to do file I/O here: called from the main loop, not from an
+    # IRQ/Timer callback.
+    if not g.irq_errors:
+        return
+    try:
+        with open("error_log.txt", "a") as f:
+            while g.irq_errors:
+                context, exc = g.irq_errors.pop()
+                f.write("{} - {}: ".format(time.time(), context))
+                sys.print_exception(exc, f)
+    except Exception as e:
+        print("failed to flush irq error log:", e)
+        g.irq_errors = []
 
 
 def toggle_led(source):
@@ -514,58 +548,70 @@ def update_weather():
 
 
 def button_single_press_callback(source):
-    print("single button press detected")
-    g.button_single_press = True
+    try:
+        print("single button press detected")
+        g.button_single_press = True
+    except Exception as e:
+        log_irq_error("button_single_press_callback", e)
 
 
 def button_long_press_callback(source):
-    print("long button press detected")
-    g.was_long_press_triggered = True
-    g.button_long_press = True
+    try:
+        print("long button press detected")
+        g.was_long_press_triggered = True
+        g.button_long_press = True
+    except Exception as e:
+        log_irq_error("button_long_press_callback", e)
     
     
 def wake_up(pin):
-    print("waking up from sleep")
+    try:
+        print("waking up from sleep")
+    except Exception as e:
+        log_irq_error("wake_up", e)
 
 
 def button_state_changed(pin):
-    LONG_PRESS_TIME = 1000
-    DOUBLE_PRESS_TIME = 250
-    DEBOUNCE_TIME = 125
-    current_time = time.ticks_ms()
-    if pin.value() == 0:
-        time_elapsed_since_release_ms = time.ticks_diff(
-            current_time, g.last_button_release_time)
-        if time_elapsed_since_release_ms < DEBOUNCE_TIME:
-            return
-        time_elapsed_since_last_press_ms = time.ticks_diff(
-            current_time, g.last_button_press_time)
-        print("registering button release. time_elapsed_since_last_press_ms =",
-              time_elapsed_since_last_press_ms)
-        g.button_long_press_timer.deinit()
-        g.last_button_release_time = current_time
-        if g.was_long_press_triggered or g.was_double_press_triggered:
-            g.was_long_press_triggered = False
-            g.was_double_press_triggered = False
+    try:
+        LONG_PRESS_TIME = 1000
+        DOUBLE_PRESS_TIME = 250
+        DEBOUNCE_TIME = 125
+        current_time = time.ticks_ms()
+        if pin.value() == 0:
+            time_elapsed_since_release_ms = time.ticks_diff(
+                current_time, g.last_button_release_time)
+            if time_elapsed_since_release_ms < DEBOUNCE_TIME:
+                return
+            time_elapsed_since_last_press_ms = time.ticks_diff(
+                current_time, g.last_button_press_time)
+            print("registering button release. time_elapsed_since_last_press_ms =",
+                  time_elapsed_since_last_press_ms)
+            g.button_long_press_timer.deinit()
+            g.last_button_release_time = current_time
+            if g.was_long_press_triggered or g.was_double_press_triggered:
+                g.was_long_press_triggered = False
+                g.was_double_press_triggered = False
+            else:
+                g.button_single_press_timer.init(
+                    period=DOUBLE_PRESS_TIME, mode=Timer.ONE_SHOT, callback=button_single_press_callback)
         else:
-            g.button_single_press_timer.init(
-                period=DOUBLE_PRESS_TIME, mode=Timer.ONE_SHOT, callback=button_single_press_callback)
-    else:
-        time_elapsed_since_press_ms = time.ticks_diff(current_time, g.last_button_press_time)
-        if time_elapsed_since_press_ms < DEBOUNCE_TIME:
-            return
-        g.last_button_press_time = current_time
-        time_elapsed_since_release_ms = time.ticks_diff(current_time, g.last_button_release_time)
-        print("registering button press. time_since_last_release_ms = ", time_elapsed_since_release_ms)
-        if time_elapsed_since_release_ms < DOUBLE_PRESS_TIME:
-            print("double press detected")
-            g.button_single_press_timer.deinit()
-            g.was_double_press_triggered = True
-            g.button_double_press = True
-            g.button_single_press = False
-        else:
-            g.button_long_press_timer.init(
-                period=LONG_PRESS_TIME, mode=Timer.ONE_SHOT, callback=button_long_press_callback)
+            time_elapsed_since_press_ms = time.ticks_diff(current_time, g.last_button_press_time)
+            if time_elapsed_since_press_ms < DEBOUNCE_TIME:
+                return
+            g.last_button_press_time = current_time
+            time_elapsed_since_release_ms = time.ticks_diff(current_time, g.last_button_release_time)
+            print("registering button press. time_since_last_release_ms = ", time_elapsed_since_release_ms)
+            if time_elapsed_since_release_ms < DOUBLE_PRESS_TIME:
+                print("double press detected")
+                g.button_single_press_timer.deinit()
+                g.was_double_press_triggered = True
+                g.button_double_press = True
+                g.button_single_press = False
+            else:
+                g.button_long_press_timer.init(
+                    period=LONG_PRESS_TIME, mode=Timer.ONE_SHOT, callback=button_long_press_callback)
+    except Exception as e:
+        log_irq_error("button_state_changed", e)
 
 
 def boot_sequence():
@@ -577,8 +623,6 @@ def boot_sequence():
     connect_to_wifi()
     print("setting current time...")
     set_current_time()
-
-    # print("initializing button handler...")
 
     print("reading open meteo API uri...")
     g.open_meteo_uri = get_open_meteo_uri()
@@ -600,6 +644,9 @@ def any_button_pressed():
 
 
 def loop():
+    flush_irq_errors()
+    gc.collect()
+
     button.irq(trigger=Pin.IRQ_RISING | Pin.IRQ_FALLING, handler=button_state_changed)
 
     print("idling...")
@@ -612,6 +659,14 @@ def loop():
     white_led.value(0)
     print("checking any button pressed...")
     if not any_button_pressed():
+        if g.app_state == AGENDA_SCREEN:
+            connect_to_wifi()
+            update_agenda()
+        elif g.app_state == WEATHER_SCREEN:
+            connect_to_wifi()
+            update_weather()
+            
+        time.sleep_ms(500)
         if g.wlan.isconnected():
             disconnect_from_wifi()
         print("entering lightsleep")
