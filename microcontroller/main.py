@@ -462,10 +462,10 @@ def fetch_weather_info(uri) -> list[WeatherEntry]:
     current = WeatherEntry()
     year, month, day = [int(x) for x in daily_data["time"][0].split("-")]
     current.date = time.mktime((year, month, day, 0, 0, 0, 0, 0))
-    current.temp_min = forecast["current"]["temperature_2m"]
-    current.temp_max = current.temp_min
-    current.precipitation = forecast["current"]["precipitation"]
-    current.weather_code = forecast["current"]["weather_code"]
+    current.temp_min = daily_data["temperature_2m_min"][0]
+    current.temp_max = daily_data["temperature_2m_max"][1]
+    current.precipitation = daily_data["precipitation_probability_max"][0]
+    current.weather_code = daily_data["weather_code"][0]
     current.day_name = days[time.localtime(current.date)[6]]
 
     tomorrow = WeatherEntry()
@@ -527,10 +527,11 @@ def update_weather():
     ssd.wait_until_ready()
 
     label_width = ssd.width // 3
-    first_row_height = 8
-    second_row_height = 25
-    third_row_height = 45
-    icons_height = 60
+    first_row_height = 4
+    second_row_height = 20
+    third_row_height = 40
+    fourth_row_height = 60
+    icons_height = 65 
     icons_size = 64
 
     PicoLabel(g.wri_small_font, forecast_now.day_name, 0, first_row_height, label_width)
@@ -538,15 +539,18 @@ def update_weather():
     PicoLabel(g.wri_small_font, forecast_day_after_tomorrow.day_name, label_width * 2, first_row_height, label_width)
 
     PicoLabel(g.wri_big_font, f"{forecast_now.temp_min}C", 0, second_row_height, label_width)
-    PicoLabel(g.wri_big_font, f"{int(forecast_now.precipitation)}%",0, third_row_height, label_width)
+    PicoLabel(g.wri_big_font, f"{forecast_now.temp_max}C", 0, third_row_height, label_width)
+    PicoLabel(g.wri_big_font, f"{int(forecast_now.precipitation)}%", 0, fourth_row_height, label_width)
     display_image(9, icons_height, icons_size, icons_size, weather_code_to_icon[forecast_now.weather_code])
 
     PicoLabel(g.wri_big_font, f"{forecast_tomorrow.temp_min}C", label_width, second_row_height, label_width)
     PicoLabel(g.wri_big_font, f"{forecast_tomorrow.temp_max}C", label_width, third_row_height, label_width)
+    PicoLabel(g.wri_big_font, f"{int(forecast_tomorrow.precipitation)}%", label_width, fourth_row_height, label_width)
     display_image(93, icons_height, icons_size, icons_size, weather_code_to_icon[forecast_tomorrow.weather_code])
 
     PicoLabel(g.wri_big_font, f"{forecast_day_after_tomorrow.temp_min}C", label_width * 2, second_row_height, label_width)
     PicoLabel(g.wri_big_font, f"{forecast_day_after_tomorrow.temp_max}C", label_width * 2, third_row_height, label_width)
+    PicoLabel(g.wri_big_font, f"{int(forecast_day_after_tomorrow.precipitation)}%", label_width * 2, fourth_row_height, label_width)
     display_image(176, icons_height, icons_size, icons_size, weather_code_to_icon[forecast_day_after_tomorrow.weather_code])
 
     ssd.vline(label_width, 0, ssd.height, 1)
