@@ -93,6 +93,7 @@ class Globals:
         self.wifi_ssid = ""
         self.wifi_password = ""
         self.irq_errors = []
+        self.last_update_time = None
 
 
 month_names = [
@@ -181,12 +182,14 @@ def toggle_led(source):
 
 
 def start_led_flashing():
+    print("requesting start led flashing")
     if g.led_counter == 0:
         g.led_timer.init(period=500, mode=Timer.PERIODIC, callback=toggle_led)
     g.led_counter += 1
 
 
 def stop_led_flashing():
+    print("requesting stop led flashing")
     g.led_counter -= 1
     if g.led_counter <= 0:
         g.led_timer.deinit()
@@ -360,7 +363,9 @@ def get_open_meteo_uri():
 def update_agenda():
     # Obviously passing username and password as URL parameters is not safe but since entire network traffic is happening
     # within a local network I'm not too worried about this
+    g.last_update_time = time.localtime()
     g.app_state = AGENDA_UPDATING
+    start_led_flashing()
     g.current_agenda_page = 0
     caldav_request_uri = g.backend_full_uri + \
         "/agenda?username=" + g.caldav_username + \
@@ -383,6 +388,7 @@ def update_agenda():
     update_agenda_paging()
     display_agenda(g.current_agenda_page)
     g.app_state = AGENDA_SCREEN
+    stop_led_flashing()
 
 
 def update_agenda_paging():
@@ -407,6 +413,7 @@ def display_agenda(page_index):
         print(f"invalid page index ({page_index})")
         return
 
+    start_led_flashing()
     refresh(ssd, True)
     ssd.wait_until_ready()
     row = 6
@@ -436,6 +443,7 @@ def display_agenda(page_index):
     g.wri_small_font.printstring(page_label, True)
     refresh(ssd)
     ssd.wait_until_ready()
+    stop_led_flashing()
 
 
 def fetch_weather_info(uri) -> list[WeatherEntry]:
@@ -496,6 +504,8 @@ def display_image(pos_x, pos_y, width, height, img_data):
 
 def update_weather():
     g.app_state = WEATHER_UPDATING
+    g.last_update_time = time.localtime()
+    start_led_flashing()
     try:
         g.weather_info = fetch_weather_info(g.open_meteo_uri)
     except Exception as e:
@@ -545,6 +555,7 @@ def update_weather():
     refresh(ssd)
     ssd.wait_until_ready()
     g.app_state = WEATHER_SCREEN
+    stop_led_flashing()
 
 
 def button_single_press_callback(source):
@@ -659,19 +670,25 @@ def loop():
     white_led.value(0)
     print("checking any button pressed...")
     if not any_button_pressed():
-        if g.app_state == AGENDA_SCREEN:
-            connect_to_wifi()
-            update_agenda()
-        elif g.app_state == WEATHER_SCREEN:
-            connect_to_wifi()
-            update_weather()
-            
+        last_update = time.mktime(g.last_update_time)
+        now = time.mktime(time.localtime())
+        delta = now - last_update
+        if delta > 60 * 60 * 3:
+            if g.app_state == AGENDA_SCREEN:
+                connect_to_wifi()
+                update_agenda()
+            elif g.app_state == WEATHER_SCREEN:
+                connect_to_wifi()
+                update_weather()
+
         time.sleep_ms(500)
         if g.wlan.isconnected():
             disconnect_from_wifi()
+
         print("entering lightsleep")
         button.irq(trigger=Pin.IRQ_RISING | Pin.IRQ_FALLING, handler=wake_up)
         
+        stop_led_flashing()
         time.sleep_ms(500)
 
         machine.lightsleep(1000 * 60 * 60)
@@ -679,19 +696,10 @@ def loop():
         time.sleep_ms(500)
         return
 
-    start_led_flashing()
-
-    # Give the device a bit of time after waking up to update its state. This allows to avoid the race condition
-    # between button release triggering the wake-up, and updating the program's state.
-
-    if not any_button_pressed():
-        print("no input registered, skipping update loop...")
-        stop_led_flashing()
-        return
-
     ssd.init()
     print("running update loop...")
     if g.button_long_press:
+        start_led_flashing()
         refresh(ssd, True)
         connect_to_wifi()
         author, quote = get_quote_of_the_day()
@@ -706,6 +714,7 @@ def loop():
         g.wri_small_font.printstring(author, True)
         refresh(ssd)
         ssd.wait_until_ready()
+        stop_led_flashing()
     elif g.app_state == AGENDA_FAILED:
         connect_to_wifi()
         if g.button_single_press:
