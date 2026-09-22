@@ -730,14 +730,21 @@ def loop():
             g.current_agenda_page = (g.current_agenda_page + 1) % len(g.agenda_pages)
             display_agenda(g.current_agenda_page)
         elif g.button_double_press:
+            start_led_flashing()
             connect_to_wifi()
             update_weather()
+            stop_led_flashing()
     elif g.app_state == WEATHER_FAILED or g.app_state == WEATHER_SCREEN:
-        connect_to_wifi()
         if g.button_single_press:
+            start_led_flashing()
+            connect_to_wifi()
             update_weather()
+            stop_led_flashing()
         elif g.button_double_press:
+            start_led_flashing()
+            connect_to_wifi()
             update_agenda()
+            stop_led_flashing()
     else:
         print("button press not handled in current state")
 
